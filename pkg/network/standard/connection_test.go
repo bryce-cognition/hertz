@@ -18,9 +18,13 @@ package standard
 
 import (
 	"bytes"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"io"
+	"math/big"
 	"net"
 	"runtime"
 	"strings"
@@ -31,6 +35,7 @@ import (
 
 	. "github.com/bytedance/mockey"
 	"github.com/cloudwego/hertz/pkg/common/test/assert"
+	errs "github.com/cloudwego/hertz/pkg/common/errors"
 )
 
 func TestRead(t *testing.T) {
@@ -274,10 +279,12 @@ func TestHandleSpecificError(t *testing.T) {
 }
 
 type mockConn struct {
-	buffer        bytes.Buffer
-	localAddr     net.Addr
-	remoteAddr    net.Addr
-	readReturnErr bool
+	buffer           bytes.Buffer
+	localAddr        net.Addr
+	remoteAddr       net.Addr
+	readReturnErr    bool
+	writeDeadlineSet bool
+	closed           bool
 }
 
 func (m *mockConn) Handshake() error {
@@ -315,6 +322,7 @@ func (m *mockConn) Write(b []byte) (n int, err error) {
 }
 
 func (m *mockConn) Close() error {
+	m.closed = true
 	return errors.New("conn: method not supported")
 }
 
@@ -397,3 +405,205 @@ func TestFillReturnErrAndN(t *testing.T) {
 	assert.DeepEqual(t, err, io.EOF)
 	assert.DeepEqual(t, len(b), 4089)
 }
+
+func TestBufferManagementEdgeCases(t *testing.T) {
+	c := &mockConn{}
+	conn := newConn(c, 4096)
+
+	// Test large buffer allocation
+	largeSize := 1024 * 1024 // 1MB
+	b, err := conn.Malloc(largeSize)
+	assert.Nil(t, err)
+	assert.DeepEqual(t, len(b), largeSize)
+
+	// Test multiple small allocations
+	for i := 0; i < 100; i++ {
+		b, err := conn.Malloc(100)
+		assert.Nil(t, err)
+		assert.DeepEqual(t, len(b), 100)
+	}
+
+	// Test allocation after flush
+	err = conn.Flush()
+	assert.Nil(t, err)
+	b, err = conn.Malloc(200)
+	assert.Nil(t, err)
+	assert.DeepEqual(t, len(b), 200)
+}
+
+func TestErrorHandling(t *testing.T) {
+	c := &mockConn{
+		readReturnErr: true,
+	}
+	conn := newConn(c, 4096)
+
+	// Test handling of EPIPE error
+	err := syscall.EPIPE
+	assert.True(t, conn.(*Conn).HandleSpecificError(err, "192.168.0.1:8080"))
+
+	// Test handling of ECONNRESET error
+	err = syscall.ECONNRESET
+	assert.True(t, conn.(*Conn).HandleSpecificError(err, "192.168.0.1:8080"))
+
+	// Test handling of non-specific error
+	err = syscall.Errno(0) // Use syscall.Errno instead of errors.New
+	assert.False(t, conn.(*Conn).HandleSpecificError(err, "192.168.0.1:8080"))
+}
+
+func generateTestCert() (tls.Certificate, error) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		NotBefore:    time.Now(),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+
+	return tls.Certificate{
+		Certificate: [][]byte{certDER},
+		PrivateKey:  key,
+	}, nil
+}
+
+func TestTLSFunctionality(t *testing.T) {
+	// Generate a test certificate and key
+	cert, err := generateTestCert()
+	if err != nil {
+		t.Fatalf("Failed to generate test certificate: %v", err)
+	}
+
+	// Create TLS configs for server
+	serverTLSConfig := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+	}
+
+	// Create a listener for the server
+	listener, err := tls.Listen("tcp", "localhost:0", serverTLSConfig)
+	if err != nil {
+		t.Fatalf("Failed to create TLS listener: %v", err)
+	}
+	defer listener.Close()
+
+	// Start a goroutine for the server
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			t.Errorf("Server accept error: %v", err)
+			return
+		}
+		defer conn.Close()
+
+		// Echo server
+		io.Copy(conn, conn)
+	}()
+
+	// Connect as a client
+	clientConn, err := tls.Dial("tcp", listener.Addr().String(), &tls.Config{
+		InsecureSkipVerify: true,
+	})
+	if err != nil {
+		t.Fatalf("Client dial error: %v", err)
+	}
+	defer clientConn.Close()
+
+	// Create our TLSConn
+	conn := newTLSConn(clientConn, 4096)
+
+	// Test basic TLS connection functionality
+	assert.NotNil(t, conn)
+
+	// Test writing to the TLS connection
+	testData := []byte("Hello, TLS!")
+	n, err := conn.Write(testData)
+	assert.Nil(t, err)
+	assert.DeepEqual(t, len(testData), n)
+
+	// Flush to ensure data is sent
+	err = conn.Flush()
+	assert.Nil(t, err)
+
+	// Test reading from the TLS connection
+	readBuf, err := conn.Peek(len(testData))
+	assert.Nil(t, err)
+	assert.DeepEqual(t, testData, readBuf)
+
+	// Test skipping read data
+	err = conn.Skip(len(testData))
+	assert.Nil(t, err)
+
+	// Test TLS-specific methods
+	tlsConn, ok := conn.(*TLSConn)
+	assert.True(t, ok)
+
+	state := tlsConn.ConnectionState()
+	assert.True(t, state.HandshakeComplete)
+}
+
+func TestToHertzError(t *testing.T) {
+	conn := &Conn{}
+
+	// Test EPIPE error
+	epipeErr := syscall.EPIPE
+	hertzErr := conn.ToHertzError(epipeErr)
+	assert.DeepEqual(t, errs.ErrConnectionClosed, hertzErr)
+
+	// Test ENOTCONN error
+	enotconnErr := syscall.ENOTCONN
+	hertzErr = conn.ToHertzError(enotconnErr)
+	assert.DeepEqual(t, errs.ErrConnectionClosed, hertzErr)
+
+	// Test timeout error
+	timeoutErr := &net.OpError{Err: &timeoutError{}}
+	hertzErr = conn.ToHertzError(timeoutErr)
+	assert.DeepEqual(t, errs.ErrTimeout, hertzErr)
+
+	// Test other error
+	otherErr := errors.New("some other error")
+	hertzErr = conn.ToHertzError(otherErr)
+	assert.DeepEqual(t, otherErr, hertzErr)
+}
+
+func TestSetWriteTimeout(t *testing.T) {
+	mockConn := &mockConn{}
+	conn := &Conn{c: mockConn}
+
+	// Test setting a positive timeout
+	err := conn.SetWriteTimeout(time.Second)
+	assert.DeepEqual(t, errors.New("conn: write deadline not supported"), err)
+	assert.False(t, mockConn.writeDeadlineSet)
+
+	// Test setting a zero timeout
+	err = conn.SetWriteTimeout(0)
+	assert.DeepEqual(t, errors.New("conn: write deadline not supported"), err)
+	assert.False(t, mockConn.writeDeadlineSet)
+
+	// Test setting a negative timeout
+	err = conn.SetWriteTimeout(-time.Second)
+	assert.DeepEqual(t, errors.New("conn: write deadline not supported"), err)
+	assert.False(t, mockConn.writeDeadlineSet)
+}
+
+func TestCloseNoResetBuffer(t *testing.T) {
+	mockConn := &mockConn{}
+	conn := &Conn{c: mockConn}
+
+	err := conn.CloseNoResetBuffer()
+	assert.DeepEqual(t, errors.New("conn: method not supported"), err)
+	assert.True(t, mockConn.closed)
+}
+
+type timeoutError struct{}
+
+func (e *timeoutError) Error() string   { return "timeout" }
+func (e *timeoutError) Timeout() bool   { return true }
+func (e *timeoutError) Temporary() bool { return true }
