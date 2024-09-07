@@ -50,6 +50,7 @@ import (
 	"math/rand"
 	"os"
 	"path"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -694,4 +695,50 @@ func TestFileSmallUpdateByteRange(t *testing.T) {
 	assert.Nil(t, err)
 	assert.DeepEqual(t, 1, r.startPos)
 	assert.DeepEqual(t, 2, r.endPos)
+}
+
+func TestServeFile(t *testing.T) {
+	t.Parallel()
+
+	tempDir, err := ioutil.TempDir("", "hertz-test")
+	assert.Nil(t, err)
+	defer os.RemoveAll(tempDir)
+
+	testFile := filepath.Join(tempDir, "test.txt")
+	err = ioutil.WriteFile(testFile, []byte("Hello, Hertz!"), 0644)
+	assert.Nil(t, err)
+
+	tests := []struct {
+		name           string
+		path           string
+		expectedStatus int
+		expectedBody   string
+	}{
+		{
+			name:           "Existing file",
+			path:           testFile,
+			expectedStatus: consts.StatusOK,
+			expectedBody:   "Hello, Hertz!",
+		},
+		{
+			name:           "Non-existent file",
+			path:           filepath.Join(tempDir, "nonexistent.txt"),
+			expectedStatus: consts.StatusNotFound,
+			expectedBody:   "Cannot open requested path",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var ctx RequestContext
+			var req protocol.Request
+			req.SetRequestURI("http://example.com" + tt.path)
+			req.CopyTo(&ctx.Request)
+
+			ServeFile(&ctx, tt.path)
+
+			assert.DeepEqual(t, tt.expectedStatus, ctx.Response.StatusCode())
+			assert.DeepEqual(t, tt.expectedBody, string(ctx.Response.Body()))
+		})
+	}
 }
