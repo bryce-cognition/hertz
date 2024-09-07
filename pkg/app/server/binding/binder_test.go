@@ -1706,3 +1706,209 @@ func Benchmark_Binding(b *testing.B) {
 		}
 	}
 }
+
+func TestBind_ComplexNestedStruct(t *testing.T) {
+	type DeepNested struct {
+		Value string `json:"value"`
+	}
+
+	type Nested struct {
+		Name  string     `json:"name"`
+		Deep  DeepNested `json:"deep"`
+		Count int        `json:"count"`
+	}
+
+	type ComplexStruct struct {
+		ID        int      `json:"id"`
+		Nested    Nested   `json:"nested"`
+		Tags      []string `json:"tags"`
+		IsActive  bool     `json:"is_active"`
+		CreatedAt string   `json:"created_at"`
+	}
+
+	jsonBody := `{
+		"id": 1,
+		"nested": {
+			"name": "Test",
+			"deep": {
+				"value": "DeepValue"
+			},
+			"count": 42
+		},
+		"tags": ["tag1", "tag2"],
+		"is_active": true,
+		"created_at": "2023-05-10T12:00:00Z"
+	}`
+
+	req := newMockRequest().
+		SetRequestURI("http://example.com").
+		SetBody([]byte(jsonBody)).
+		SetJSONContentType()
+
+	var result ComplexStruct
+	err := DefaultBinder().Bind(req.Req, &result, nil)
+
+	assert.Nil(t, err)
+	assert.DeepEqual(t, 1, result.ID)
+	assert.DeepEqual(t, "Test", result.Nested.Name)
+	assert.DeepEqual(t, "DeepValue", result.Nested.Deep.Value)
+	assert.DeepEqual(t, 42, result.Nested.Count)
+	assert.DeepEqual(t, []string{"tag1", "tag2"}, result.Tags)
+	assert.DeepEqual(t, true, result.IsActive)
+	assert.DeepEqual(t, "2023-05-10T12:00:00Z", result.CreatedAt)
+}
+
+type CustomTime time.Time
+
+func (ct *CustomTime) UnmarshalJSON(b []byte) error {
+	var timeStr string
+	if err := json.Unmarshal(b, &timeStr); err != nil {
+		return err
+	}
+	parsedTime, err := time.Parse(time.RFC3339, timeStr)
+	if err != nil {
+		return err
+	}
+	*ct = CustomTime(parsedTime)
+	return nil
+}
+
+func TestBind_CustomTypeUnmarshaling(t *testing.T) {
+	type CustomStruct struct {
+		ID        int        `json:"id"`
+		CreatedAt CustomTime `json:"created_at"`
+	}
+
+	jsonBody := `{
+		"id": 1,
+		"created_at": "2023-05-10T12:00:00Z"
+	}`
+
+	req := newMockRequest().
+		SetRequestURI("http://example.com").
+		SetBody([]byte(jsonBody)).
+		SetJSONContentType()
+
+	var result CustomStruct
+	err := DefaultBinder().Bind(req.Req, &result, nil)
+
+	assert.Nil(t, err)
+	assert.DeepEqual(t, 1, result.ID)
+	expectedTime, _ := time.Parse(time.RFC3339, "2023-05-10T12:00:00Z")
+	assert.DeepEqual(t, CustomTime(expectedTime), result.CreatedAt)
+
+	// Test with invalid time format
+	invalidJSONBody := `{
+		"id": 2,
+		"created_at": "invalid-time-format"
+	}`
+
+	req = newMockRequest().
+		SetRequestURI("http://example.com").
+		SetBody([]byte(invalidJSONBody)).
+		SetJSONContentType()
+
+	result = CustomStruct{}
+	err = DefaultBinder().Bind(req.Req, &result, nil)
+
+	assert.NotNil(t, err)
+	assert.DeepEqual(t, 2, result.ID)
+	assert.DeepEqual(t, CustomTime{}, result.CreatedAt)
+}
+
+func TestBind_AdditionalValidationScenarios(t *testing.T) {
+	type ValidatedStruct struct {
+		Name  string `json:"name" vd:"len($)>0&&len($)<50"`
+		Email string `json:"email" vd:"email($)"`
+		Age   int    `json:"age" vd:"$>=18"`
+	}
+
+	validJSON := `{
+		"name": "John Doe",
+		"email": "john@example.com",
+		"age": 25
+	}`
+
+	invalidJSON := `{
+		"name": "",
+		"email": "invalid-email",
+		"age": 15
+	}`
+
+	req := newMockRequest().
+		SetRequestURI("http://example.com").
+		SetBody([]byte(validJSON)).
+		SetJSONContentType()
+
+	var result ValidatedStruct
+	err := DefaultBinder().BindAndValidate(req.Req, &result, nil)
+
+	assert.Nil(t, err)
+	assert.DeepEqual(t, "John Doe", result.Name)
+	assert.DeepEqual(t, "john@example.com", result.Email)
+	assert.DeepEqual(t, 25, result.Age)
+
+	req = newMockRequest().
+		SetRequestURI("http://example.com").
+		SetBody([]byte(invalidJSON)).
+		SetJSONContentType()
+
+	result = ValidatedStruct{}
+	err = DefaultBinder().BindAndValidate(req.Req, &result, nil)
+
+	assert.NotNil(t, err)
+}
+
+func TestBind_PointerTypeEdgeCases(t *testing.T) {
+	type PointerStruct struct {
+		ID       *int     `json:"id"`
+		Name     *string  `json:"name"`
+		IsActive *bool    `json:"is_active"`
+		Tags     *[]string `json:"tags"`
+	}
+
+	jsonBody := `{
+		"id": 1,
+		"name": "Test",
+		"is_active": true,
+		"tags": ["tag1", "tag2"]
+	}`
+
+	req := newMockRequest().
+		SetRequestURI("http://example.com").
+		SetBody([]byte(jsonBody)).
+		SetJSONContentType()
+
+	var result PointerStruct
+	err := DefaultBinder().Bind(req.Req, &result, nil)
+
+	assert.Nil(t, err)
+	assert.NotNil(t, result.ID)
+	assert.DeepEqual(t, 1, *result.ID)
+	assert.NotNil(t, result.Name)
+	assert.DeepEqual(t, "Test", *result.Name)
+	assert.NotNil(t, result.IsActive)
+	assert.DeepEqual(t, true, *result.IsActive)
+	assert.NotNil(t, result.Tags)
+	assert.DeepEqual(t, []string{"tag1", "tag2"}, *result.Tags)
+
+	// Test with missing fields
+	jsonBodyMissing := `{
+		"id": 2
+	}`
+
+	req = newMockRequest().
+		SetRequestURI("http://example.com").
+		SetBody([]byte(jsonBodyMissing)).
+		SetJSONContentType()
+
+	result = PointerStruct{}
+	err = DefaultBinder().Bind(req.Req, &result, nil)
+
+	assert.Nil(t, err)
+	assert.NotNil(t, result.ID)
+	assert.DeepEqual(t, 2, *result.ID)
+	assert.Nil(t, result.Name)
+	assert.Nil(t, result.IsActive)
+	assert.Nil(t, result.Tags)
+}
