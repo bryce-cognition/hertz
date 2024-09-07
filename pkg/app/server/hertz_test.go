@@ -257,6 +257,76 @@ func TestServer_Run(t *testing.T) {
 	_ = hertz.Shutdown(ctx)
 }
 
+func TestHertz_POST(t *testing.T) {
+	hertz := New(WithHostPorts("127.0.0.1:8900"))
+	hertz.POST("/test", func(c context.Context, ctx *app.RequestContext) {
+		body := ctx.Request.Body()
+		ctx.SetBodyString(string(body))
+	})
+	go hertz.Run()
+	time.Sleep(100 * time.Millisecond)
+
+	resp, err := http.Post("http://127.0.0.1:8900/test", "text/plain", strings.NewReader("test body"))
+	assert.Nil(t, err)
+	assert.DeepEqual(t, consts.StatusOK, resp.StatusCode)
+	body, _ := ioutil.ReadAll(resp.Body)
+	assert.DeepEqual(t, "test body", string(body))
+
+	hertz.Close()
+}
+
+func TestHertz_PUT(t *testing.T) {
+	hertz := New(WithHostPorts("127.0.0.1:8901"))
+	hertz.PUT("/test", func(c context.Context, ctx *app.RequestContext) {
+		body := ctx.Request.Body()
+		ctx.SetBodyString(string(body))
+	})
+	go hertz.Run()
+	time.Sleep(100 * time.Millisecond)
+
+	client := &http.Client{}
+	req, _ := http.NewRequest("PUT", "http://127.0.0.1:8901/test", strings.NewReader("test body"))
+	resp, err := client.Do(req)
+	assert.Nil(t, err)
+	assert.DeepEqual(t, consts.StatusOK, resp.StatusCode)
+	body, _ := ioutil.ReadAll(resp.Body)
+	assert.DeepEqual(t, "test body", string(body))
+
+	hertz.Close()
+}
+
+func TestHertz_DELETE(t *testing.T) {
+	hertz := New(WithHostPorts("127.0.0.1:8902"))
+	hertz.DELETE("/test", func(c context.Context, ctx *app.RequestContext) {
+		ctx.SetStatusCode(consts.StatusNoContent)
+	})
+	go hertz.Run()
+	time.Sleep(100 * time.Millisecond)
+
+	client := &http.Client{}
+	req, _ := http.NewRequest("DELETE", "http://127.0.0.1:8902/test", nil)
+	resp, err := client.Do(req)
+	assert.Nil(t, err)
+	assert.DeepEqual(t, consts.StatusNoContent, resp.StatusCode)
+
+	hertz.Close()
+}
+
+func TestHertz_ErrorHandling(t *testing.T) {
+	hertz := New(WithHostPorts("127.0.0.1:8903"))
+	hertz.GET("/error", func(c context.Context, ctx *app.RequestContext) {
+		ctx.AbortWithStatus(consts.StatusInternalServerError)
+	})
+	go hertz.Run()
+	time.Sleep(100 * time.Millisecond)
+
+	resp, err := http.Get("http://127.0.0.1:8903/error")
+	assert.Nil(t, err)
+	assert.DeepEqual(t, consts.StatusInternalServerError, resp.StatusCode)
+
+	hertz.Close()
+}
+
 func TestNotAbsolutePath(t *testing.T) {
 	engine := New(WithHostPorts("127.0.0.1:9990"))
 	engine.POST("/", func(c context.Context, ctx *app.RequestContext) {
