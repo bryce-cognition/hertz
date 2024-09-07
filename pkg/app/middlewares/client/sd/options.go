@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"path/filepath"
 	"strings"
 
 	"github.com/cloudwego/hertz/pkg/app/client/discovery"
@@ -54,23 +55,43 @@ type ServiceDiscoveryOption struct {
 func WithCustomizedAddrs(addrs ...string) ServiceDiscoveryOption {
 	return ServiceDiscoveryOption{
 		F: func(o *ServiceDiscoveryOptions) {
+			fmt.Println("Debug: Entering WithCustomizedAddrs function")
 			var ins []discovery.Instance
 			for _, addr := range addrs {
+				fmt.Printf("Debug: Processing address: %s\n", addr)
+
+				// Check for invalid scheme
+				if strings.Contains(addr, "://") {
+					parts := strings.SplitN(addr, "://", 2)
+					if parts[0] != "tcp" && parts[0] != "unix" {
+						fmt.Printf("Debug: Invalid scheme: %s\n", parts[0])
+						panic(fmt.Errorf("WithCustomizedAddrs: invalid scheme '%s' in address '%s'", parts[0], addr))
+					}
+					addr = parts[1] // Remove the scheme for further processing
+				}
+
 				if _, err := net.ResolveTCPAddr("tcp", addr); err == nil {
+					fmt.Printf("Debug: Valid TCP address: %s\n", addr)
 					ins = append(ins, discovery.NewInstance("tcp", addr, registry.DefaultWeight, nil))
 					continue
 				}
-				if _, err := net.ResolveUnixAddr("unix", addr); err == nil {
-					ins = append(ins, discovery.NewInstance("unix", addr, registry.DefaultWeight, nil))
-					continue
+				if filepath.IsAbs(addr) {
+					if _, err := net.ResolveUnixAddr("unix", addr); err == nil {
+						fmt.Printf("Debug: Valid Unix address: %s\n", addr)
+						ins = append(ins, discovery.NewInstance("unix", addr, registry.DefaultWeight, nil))
+						continue
+					}
 				}
+				fmt.Printf("Debug: Invalid address: %s\n", addr)
 				panic(fmt.Errorf("WithCustomizedAddrs: invalid '%s'", addr))
 			}
 			if len(ins) == 0 {
+				fmt.Println("Debug: No valid addresses found")
 				panic("WithCustomizedAddrs() requires at least one argument")
 			}
 
 			targets := strings.Join(addrs, ",")
+			fmt.Printf("Debug: Final targets: %s\n", targets)
 			o.Resolver = &discovery.SynthesizedResolver{
 				ResolveFunc: func(ctx context.Context, key string) (discovery.Result, error) {
 					return discovery.Result{
@@ -83,6 +104,7 @@ func WithCustomizedAddrs(addrs ...string) ServiceDiscoveryOption {
 					return targets
 				},
 			}
+			fmt.Println("Debug: Exiting WithCustomizedAddrs function")
 		},
 	}
 }
