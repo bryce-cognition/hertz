@@ -31,12 +31,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cloudwego/hertz/pkg/common/test/assert"
+
 	"github.com/cloudwego/hertz/internal/bytesconv"
 	"github.com/cloudwego/hertz/internal/bytestr"
 	"github.com/cloudwego/hertz/pkg/app/server/binding"
 	"github.com/cloudwego/hertz/pkg/app/server/render"
 	errs "github.com/cloudwego/hertz/pkg/common/errors"
-	"github.com/cloudwego/hertz/pkg/common/test/assert"
 	"github.com/cloudwego/hertz/pkg/common/test/mock"
 	"github.com/cloudwego/hertz/pkg/common/testdata/proto"
 	"github.com/cloudwego/hertz/pkg/common/tracer/traceinfo"
@@ -1749,4 +1750,28 @@ func BenchmarkConcurrentHandlerNameOperator(b *testing.B) {
 		SetHandlerName(fn, fmt.Sprintf("%d", n))
 		GetHandlerName(fn)
 	}
+}
+
+func TestExileAndIsExiled(t *testing.T) {
+	ctx := NewContext(0)
+	assert.False(t, ctx.IsExiled())
+
+	ctx.Exile()
+	assert.True(t, ctx.IsExiled())
+
+	// Test that Exile is idempotent
+	ctx.Exile()
+	assert.True(t, ctx.IsExiled())
+}
+
+func TestParam(t *testing.T) {
+	ctx := NewContext(0)
+	ctx.Params = param.Params{
+		{Key: "id", Value: "123"},
+		{Key: "name", Value: "test"},
+	}
+
+	assert.DeepEqual(t, "123", ctx.Param("id"))
+	assert.DeepEqual(t, "test", ctx.Param("name"))
+	assert.DeepEqual(t, "", ctx.Param("nonexistent"))
 }
