@@ -46,42 +46,53 @@ func TestReflect_TypeID(t *testing.T) {
 }
 
 func TestReflect_CheckPointer(t *testing.T) {
-	foo1 := foo{}
-	foo1Val := reflect.ValueOf(foo1)
-	err := checkPointer(foo1Val)
-	if err == nil {
-		t.Errorf("expect an err, but get nil")
+	testCases := []struct {
+		name      string
+		input     interface{}
+		expectErr bool
+	}{
+		{"Non-pointer", foo{}, true},
+		{"Valid pointer", &foo{}, false},
+		{"Nil pointer", (*foo)(nil), true},
+		{"Double pointer", new(*foo), false},
+		{"Nil double pointer", (**foo)(nil), true},
+		{"Integer", 42, true},
 	}
 
-	foo2 := &foo{}
-	foo2Val := reflect.ValueOf(foo2)
-	err = checkPointer(foo2Val)
-	if err != nil {
-		t.Error(err)
-	}
-
-	foo3 := (*foo)(nil)
-	foo3Val := reflect.ValueOf(foo3)
-	err = checkPointer(foo3Val)
-	if err == nil {
-		t.Errorf("expect an err, but get nil")
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			val := reflect.ValueOf(tc.input)
+			err := checkPointer(val)
+			if tc.expectErr {
+				assert.NotNil(t, err)
+			} else {
+				assert.Nil(t, err)
+			}
+		})
 	}
 }
 
 func TestReflect_DereferPointer(t *testing.T) {
-	var foo1 ****foo
-	foo1Val := reflect.ValueOf(foo1)
-	rt := dereferPointer(foo1Val)
-	if rt.Kind() == reflect.Ptr {
-		t.Errorf("expect non-pointer type, but get pointer")
+	testCases := []struct {
+		name         string
+		input        interface{}
+		expectedName string
+	}{
+		{"Four-level pointer", new(***foo), "foo"},
+		{"Three-level pointer", new(**foo), "foo"},
+		{"Two-level pointer", new(*foo), "foo"},
+		{"One-level pointer", new(foo), "foo"},
+		{"Non-pointer", foo{}, "foo"},
+		{"Integer pointer", new(int), "int"},
+		{"String pointer", new(string), "string"},
 	}
-	assert.DeepEqual(t, "foo", rt.Name())
 
-	var foo2 foo
-	foo2Val := reflect.ValueOf(foo2)
-	rt2 := dereferPointer(foo2Val)
-	if rt2.Kind() == reflect.Ptr {
-		t.Errorf("expect non-pointer type, but get pointer")
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			val := reflect.ValueOf(tc.input)
+			rt := dereferPointer(val)
+			assert.NotEqual(t, reflect.Ptr, rt.Kind())
+			assert.DeepEqual(t, tc.expectedName, rt.Name())
+		})
 	}
-	assert.DeepEqual(t, "foo", rt2.Name())
 }
