@@ -96,3 +96,109 @@ func TestBasicAuth(t *testing.T) {
 	assert.Nil(t, user)
 	assert.False(t, ok)
 }
+
+func TestBasicAuthForRealm(t *testing.T) {
+	accounts := Accounts{"user1": "password1"}
+	realm := "Test Realm"
+	userKey := "customUser"
+
+	handler := BasicAuthForRealm(accounts, realm, userKey)
+
+	t.Run("Valid credentials", func(t *testing.T) {
+		c := app.RequestContext{}
+		encodeStr := "Basic " + base64.StdEncoding.EncodeToString([]byte("user1:password1"))
+		c.Request.Header.Add("Authorization", encodeStr)
+
+		handler(context.TODO(), &c)
+
+		user, ok := c.Get(userKey)
+		assert.True(t, ok)
+		assert.DeepEqual(t, "user1", user)
+	})
+
+	t.Run("Invalid credentials", func(t *testing.T) {
+		c := app.RequestContext{}
+		encodeStr := "Basic " + base64.StdEncoding.EncodeToString([]byte("user1:wrongpassword"))
+		c.Request.Header.Add("Authorization", encodeStr)
+
+		handler(context.TODO(), &c)
+
+		user, ok := c.Get(userKey)
+		assert.False(t, ok)
+		assert.Nil(t, user)
+		assert.DeepEqual(t, "Basic realm=\"Test Realm\"", string(c.Response.Header.Peek("WWW-Authenticate")))
+		assert.DeepEqual(t, 401, c.Response.StatusCode())
+	})
+}
+
+func TestEmptyAccounts(t *testing.T) {
+	accounts := Accounts{}
+	handler := BasicAuth(accounts)
+
+	c := app.RequestContext{}
+	encodeStr := "Basic " + base64.StdEncoding.EncodeToString([]byte("user:password"))
+	c.Request.Header.Add("Authorization", encodeStr)
+
+	handler(context.TODO(), &c)
+
+	user, ok := c.Get("user")
+	assert.False(t, ok)
+	assert.Nil(t, user)
+	assert.DeepEqual(t, 401, c.Response.StatusCode())
+}
+
+func TestInvalidAuthorizationHeader(t *testing.T) {
+	accounts := Accounts{"user1": "password1"}
+	handler := BasicAuth(accounts)
+
+	t.Run("Missing Authorization header", func(t *testing.T) {
+		c := app.RequestContext{}
+		handler(context.TODO(), &c)
+
+		user, ok := c.Get("user")
+		assert.False(t, ok)
+		assert.Nil(t, user)
+		assert.DeepEqual(t, 401, c.Response.StatusCode())
+	})
+
+	t.Run("Invalid Authorization header format", func(t *testing.T) {
+		c := app.RequestContext{}
+		c.Request.Header.Add("Authorization", "InvalidFormat")
+		handler(context.TODO(), &c)
+
+		user, ok := c.Get("user")
+		assert.False(t, ok)
+		assert.Nil(t, user)
+		assert.DeepEqual(t, 401, c.Response.StatusCode())
+	})
+}
+
+func TestDifferentRealmValues(t *testing.T) {
+	accounts := Accounts{"user1": "password1"}
+	realm := "Custom Realm"
+	handler := BasicAuthForRealm(accounts, realm, "user")
+
+	c := app.RequestContext{}
+	encodeStr := "Basic " + base64.StdEncoding.EncodeToString([]byte("user1:wrongpassword"))
+	c.Request.Header.Add("Authorization", encodeStr)
+
+	handler(context.TODO(), &c)
+
+	assert.DeepEqual(t, "Basic realm=\"Custom Realm\"", string(c.Response.Header.Peek("WWW-Authenticate")))
+}
+
+func TestCustomUserKey(t *testing.T) {
+	accounts := Accounts{"user1": "password1"}
+	customUserKey := "customUser"
+	handler := BasicAuthForRealm(accounts, "Test Realm", customUserKey)
+
+	c := app.RequestContext{}
+	encodeStr := "Basic " + base64.StdEncoding.EncodeToString([]byte("user1:password1"))
+	c.Request.Header.Add("Authorization", encodeStr)
+
+	handler(context.TODO(), &c)
+
+	user, ok := c.Get(customUserKey)
+	assert.True(t, ok)
+	assert.DeepEqual(t, "user1", user)
+}
