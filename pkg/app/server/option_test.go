@@ -111,6 +111,12 @@ func TestOptions(t *testing.T) {
 	assert.DeepEqual(t, opt.ListenConfig, cfg)
 	assert.Assert(t, reflect.TypeOf(opt.AltTransporterNewer) == reflect.TypeOf(transporter))
 	assert.DeepEqual(t, opt.DisableHeaderNamesNormalizing, true)
+
+	// Test WithBasePath without prefix slash
+	optWithoutSlash := config.NewOptions([]config.Option{
+		WithBasePath("api"),
+	})
+	assert.DeepEqual(t, optWithoutSlash.BasePath, "/api/")
 }
 
 func TestDefaultOptions(t *testing.T) {
