@@ -43,6 +43,8 @@ package bytebufferpool
 
 import (
 	"math/rand"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -132,4 +134,86 @@ func allocNBytes(dst []byte, n int) []byte {
 		return dst[:n]
 	}
 	return append(dst, make([]byte, diff)...)
+}
+
+func TestPoolGet(t *testing.T) {
+	p := &Pool{}
+	b := p.Get()
+	if b == nil {
+		t.Fatal("Get() returned nil")
+	}
+	if len(b.B) != 0 {
+		t.Fatalf("Get() returned non-empty buffer: %d", len(b.B))
+	}
+}
+
+func TestPoolPut(t *testing.T) {
+	p := &Pool{}
+	b := p.Get()
+	b.B = append(b.B, []byte("test")...)
+	p.Put(b)
+
+	// Check if the buffer is reused
+	b2 := p.Get()
+	if len(b2.B) != 0 {
+		t.Fatalf("Put() didn't reset buffer: %d", len(b2.B))
+	}
+}
+
+
+
+func TestPoolConcurrent(t *testing.T) {
+	p := &Pool{}
+	concurrency := 10
+	iterations := 5000 // Increased iterations to trigger calibration
+
+	var wg sync.WaitGroup
+	wg.Add(concurrency)
+
+	for i := 0; i < concurrency; i++ {
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				b := p.Get()
+				b.B = append(b.B, []byte("test")...)
+				p.Put(b)
+				if j%100 == 0 {
+					time.Sleep(time.Millisecond) // Add small delay to allow calibration
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	// Wait for calibration to complete
+	for atomic.LoadUint64(&p.calibrating) != 0 {
+		time.Sleep(time.Millisecond)
+	}
+
+	// Check if calibration occurred after concurrent usage
+	if atomic.LoadUint64(&p.defaultSize) == 0 {
+		t.Fatal("Calibration didn't update defaultSize after concurrent usage")
+	}
+	if atomic.LoadUint64(&p.maxSize) == 0 {
+		t.Fatal("Calibration didn't update maxSize after concurrent usage")
+	}
+}
+
+func TestPoolVariousSizes(t *testing.T) {
+	p := &Pool{}
+	sizes := []int{64, 128, 256, 512, 1024, 2048, 4096}
+
+	for _, size := range sizes {
+		b := p.Get()
+		b.B = make([]byte, size)
+		p.Put(b)
+	}
+
+	// Get a buffer after putting various sizes
+	b := p.Get()
+	if cap(b.B) < sizes[0] {
+		t.Fatalf("Expected minimum capacity of %d, got %d", sizes[0], cap(b.B))
+	}
+	p.Put(b)
 }
