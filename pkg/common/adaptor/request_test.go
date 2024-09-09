@@ -17,10 +17,12 @@
 package adaptor
 
 import (
+	"bytes"
 	"context"
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -174,4 +176,84 @@ func TestCopyToHertzRequest(t *testing.T) {
 	assert.DeepEqual(t, req.Header.Values("key2"), valueSlice)
 
 	assert.DeepEqual(t, 3, hertzReq.Header.Len())
+}
+
+func TestGetCompatRequest(t *testing.T) {
+	testCases := []struct {
+		name           string
+		method         string
+		uri            string
+		headers        map[string][]string
+		body           []byte
+		expectedMethod string
+		expectedURI    string
+	}{
+		{
+			name:           "GET request",
+			method:         "GET",
+			uri:            "http://example.com/test",
+			headers:        map[string][]string{"Content-Type": {"application/json"}},
+			expectedMethod: "GET",
+			expectedURI:    "http://example.com/test",
+		},
+		{
+			name:           "POST request with body",
+			method:         "POST",
+			uri:            "http://example.com/api",
+			headers:        map[string][]string{"Content-Type": {"application/json"}, "Authorization": {"Bearer token"}},
+			body:           []byte(`{"key": "value"}`),
+			expectedMethod: "POST",
+			expectedURI:    "http://example.com/api",
+		},
+		{
+			name:           "Invalid method",
+			method:         "INVALID",
+			uri:            "http://example.com",
+			expectedMethod: "INVALID",
+			expectedURI:    "http://example.com/",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := &protocol.Request{}
+			req.SetMethod(tc.method)
+			req.SetRequestURI(tc.uri)
+			for k, v := range tc.headers {
+				for _, val := range v {
+					req.Header.Add(k, val)
+				}
+			}
+			req.SetBody(tc.body)
+
+			compatReq, err := GetCompatRequest(req)
+
+			if err != nil {
+				t.Errorf("Unexpected error for %s: %v", tc.name, err)
+			}
+			if compatReq == nil {
+				t.Errorf("Expected non-nil compatReq for %s, but got nil", tc.name)
+			} else {
+				if compatReq.Method != tc.expectedMethod {
+					t.Errorf("Expected method %s for %s, but got %s", tc.expectedMethod, tc.name, compatReq.Method)
+				}
+				if compatReq.URL.String() != tc.expectedURI {
+					t.Errorf("Expected URI %s for %s, but got %s", tc.expectedURI, tc.name, compatReq.URL.String())
+				}
+
+				for k, v := range tc.headers {
+					if !reflect.DeepEqual(v, compatReq.Header[k]) {
+						t.Errorf("Header mismatch for %s. Key: %s, Expected: %v, Got: %v", tc.name, k, v, compatReq.Header[k])
+					}
+				}
+
+				if tc.body != nil {
+					body, _ := ioutil.ReadAll(compatReq.Body)
+					if !bytes.Equal(tc.body, body) {
+						t.Errorf("Body mismatch for %s. Expected: %s, Got: %s", tc.name, tc.body, body)
+					}
+				}
+			}
+		})
+	}
 }
