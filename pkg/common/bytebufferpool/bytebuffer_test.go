@@ -177,3 +177,144 @@ func TestByteBufferGetStringConcurrent(t *testing.T) {
 		}
 	}
 }
+
+func TestByteBufferWrite(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    []byte
+		expected string
+	}{
+		{"Empty input", []byte{}, ""},
+		{"Single byte", []byte{'a'}, "a"},
+		{"Multiple bytes", []byte("hello"), "hello"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := Get()
+			defer Put(b)
+
+			n, err := b.Write(tt.input)
+			if err != nil {
+				t.Errorf("Write() error = %v", err)
+			}
+			if n != len(tt.input) {
+				t.Errorf("Write() wrote %d bytes, expected %d", n, len(tt.input))
+			}
+			if string(b.B) != tt.expected {
+				t.Errorf("Write() result = %q, expected %q", b.B, tt.expected)
+			}
+		})
+	}
+}
+
+func TestByteBufferWriteByte(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    byte
+		expected string
+	}{
+		{"Zero byte", 0, "\x00"},
+		{"ASCII character", 'A', "A"},
+		{"Non-ASCII byte", 255, "\xff"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := Get()
+			defer Put(b)
+
+			err := b.WriteByte(tt.input)
+			if err != nil {
+				t.Errorf("WriteByte() error = %v", err)
+			}
+			if string(b.B) != tt.expected {
+				t.Errorf("WriteByte() result = %q, expected %q", b.B, tt.expected)
+			}
+		})
+	}
+}
+
+func TestByteBufferReset(t *testing.T) {
+	b := Get()
+	defer Put(b)
+
+	b.WriteString("test data")
+	b.Reset()
+
+	if len(b.B) != 0 {
+		t.Errorf("Reset() failed, buffer not empty: %q", b.B)
+	}
+}
+
+func TestByteBufferLen(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected int
+	}{
+		{"Empty buffer", "", 0},
+		{"Non-empty buffer", "hello", 5},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := Get()
+			defer Put(b)
+
+			b.WriteString(tt.input)
+			if b.Len() != tt.expected {
+				t.Errorf("Len() = %d, expected %d", b.Len(), tt.expected)
+			}
+		})
+	}
+}
+
+func TestByteBufferString(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"Empty buffer", "", ""},
+		{"Non-empty buffer", "hello world", "hello world"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := Get()
+			defer Put(b)
+
+			b.WriteString(tt.input)
+			if b.String() != tt.expected {
+				t.Errorf("String() = %q, expected %q", b.String(), tt.expected)
+			}
+		})
+	}
+}
+
+func TestByteBufferSetString(t *testing.T) {
+	tests := []struct {
+		name     string
+		initial  string
+		input    string
+		expected string
+	}{
+		{"Empty to non-empty", "", "hello", "hello"},
+		{"Non-empty to empty", "initial", "", ""},
+		{"Non-empty to non-empty", "initial", "updated", "updated"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := Get()
+			defer Put(b)
+
+			b.WriteString(tt.initial)
+			b.SetString(tt.input)
+			if b.String() != tt.expected {
+				t.Errorf("SetString() result = %q, expected %q", b.String(), tt.expected)
+			}
+		})
+	}
+}
