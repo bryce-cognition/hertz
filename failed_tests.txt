@@ -1,0 +1,12 @@
+TestPerformRequest in request_test.go: Assertion failed
+Expected: "PUT /hey/dy HTTP/1.1\r\nContent-Type: application/x-www-form-urlencoded\r\nTransfer-Encoding: chunked\r\n\r\n"
+Actual: "PUT /hey/json HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: 16\r\n\r\n"
+
+TestPerformRequest in request_test.go: Assertion failed (2024/09/09 18:15:36)
+Expected: PUT /hey/dy HTTP/1.1
+Content-Type: application/x-www-form-urlencoded
+Transfer-Encoding: chunked
+
+Actual: PUT /hey/json HTTP/1.1
+Content-Type: application/json
+Content-Length: 16

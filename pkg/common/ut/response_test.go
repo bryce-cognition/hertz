@@ -57,3 +57,51 @@ func TestWrite(t *testing.T) {
 	ret := r.Result()
 	assert.DeepEqual(t, "hello", string(ret.Body()))
 }
+
+func TestHeader(t *testing.T) {
+	r := NewRecorder()
+	r.Header().Set("Content-Type", "application/json")
+	r.Header().Set("X-Custom-Header", "test-value")
+	ret := r.Result()
+	assert.DeepEqual(t, "application/json", string(ret.Header.Get("Content-Type")))
+	assert.DeepEqual(t, "test-value", string(ret.Header.Get("X-Custom-Header")))
+}
+
+func TestMultipleWrites(t *testing.T) {
+	r := NewRecorder()
+	r.Write([]byte("Hello"))
+	r.Write([]byte(" "))
+	r.Write([]byte("World"))
+	ret := r.Result()
+	assert.DeepEqual(t, "Hello World", string(ret.Body()))
+}
+
+func TestLargePayload(t *testing.T) {
+	r := NewRecorder()
+	largePayload := make([]byte, 1024*1024) // 1MB payload
+	for i := range largePayload {
+		largePayload[i] = byte(i % 256)
+	}
+	r.Write(largePayload)
+	ret := r.Result()
+	assert.DeepEqual(t, largePayload, ret.Body())
+	assert.DeepEqual(t, len(largePayload), ret.Header.ContentLength())
+}
+
+func TestDifferentStatusCodes(t *testing.T) {
+	statusCodes := []int{
+		consts.StatusOK,
+		consts.StatusCreated,
+		consts.StatusAccepted,
+		consts.StatusNoContent,
+		consts.StatusBadRequest,
+		consts.StatusInternalServerError,
+	}
+
+	for _, code := range statusCodes {
+		r := NewRecorder()
+		r.WriteHeader(code)
+		ret := r.Result()
+		assert.DeepEqual(t, code, ret.StatusCode())
+	}
+}

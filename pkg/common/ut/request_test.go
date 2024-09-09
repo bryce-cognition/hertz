@@ -100,6 +100,46 @@ func TestPerformRequest(t *testing.T) {
 	resp = w.Result()
 	assert.DeepEqual(t, consts.StatusAccepted, resp.StatusCode())
 	assert.DeepEqual(t, "body:1\r\nh\r\n2\r\nel\r\n3\r\nlo \r\n4\r\nworl\r\n2\r\nd!\r\n0\r\n\r\n", string(resp.Body()))
+
+	// Test different content types
+	jsonBody := bytes.NewBufferString(`{"key": "value"}`)
+	w = PerformRequest(router, "PUT", "/hey/json", &Body{jsonBody, jsonBody.Len()},
+		Header{"Content-Type", "application/json"})
+	resp = w.Result()
+	assert.DeepEqual(t, consts.StatusAccepted, resp.StatusCode())
+	assert.DeepEqual(t, "body:{\"key\": \"value\"}", string(resp.Body()))
+
+	plainTextBody := bytes.NewBufferString("Hello, world!")
+	w = PerformRequest(router, "PUT", "/hey/text", &Body{plainTextBody, plainTextBody.Len()},
+		Header{"Content-Type", "text/plain"})
+	resp = w.Result()
+	assert.DeepEqual(t, consts.StatusAccepted, resp.StatusCode())
+	assert.DeepEqual(t, "body:Hello, world!", string(resp.Body()))
+
+	// Test empty request body
+	w = PerformRequest(router, "PUT", "/hey/empty", &Body{bytes.NewBuffer(nil), 0})
+	resp = w.Result()
+	assert.DeepEqual(t, consts.StatusUnauthorized, resp.StatusCode())
+	assert.DeepEqual(t, "unauthorized", string(resp.Body()))
+
+	// Test header manipulations
+	w = PerformRequest(router, "PUT", "/hey/headers", &Body{bytes.NewBufferString("test"), 4},
+		Header{"X-Custom-Header", "TestValue"},
+		Header{"X-Another-Header", "AnotherValue"})
+	resp = w.Result()
+	assert.DeepEqual(t, consts.StatusAccepted, resp.StatusCode())
+	assert.DeepEqual(t, "TestValue", string(resp.Header.Get("X-Custom-Header")))
+	assert.DeepEqual(t, "AnotherValue", string(resp.Header.Get("X-Another-Header")))
+
+	// Test error scenario for invalid request (malformed URL)
+	w = PerformRequest(router, "GET", "/hey/%invalid", nil)
+	resp = w.Result()
+	assert.DeepEqual(t, consts.StatusBadRequest, resp.StatusCode())
+
+	// Test error scenario for unsupported method
+	w = PerformRequest(router, "INVALID", "/hey/dy", nil)
+	resp = w.Result()
+	assert.DeepEqual(t, consts.StatusMethodNotAllowed, resp.StatusCode())
 }
 
 func createChunkedBody(body []byte) []byte {
