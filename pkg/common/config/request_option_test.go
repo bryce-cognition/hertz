@@ -75,3 +75,33 @@ func TestRequestOptions_CopyTo(t *testing.T) {
 	assert.DeepEqual(t, opt.Tags(), copyOpt.Tags())
 	assert.DeepEqual(t, opt.IsSD(), copyOpt.IsSD())
 }
+
+// TestWithRequestTimeout tests the WithRequestTimeout function
+func TestWithRequestTimeout(t *testing.T) {
+	timeout := 5 * time.Second
+	opt := NewRequestOptions([]RequestOption{WithRequestTimeout(timeout)})
+	assert.DeepEqual(t, timeout, opt.RequestTimeout())
+}
+
+// TestRequestTimeout tests the RequestTimeout method
+func TestRequestTimeout(t *testing.T) {
+	timeout := 3 * time.Second
+	opt := NewRequestOptions([]RequestOption{WithRequestTimeout(timeout)})
+	assert.DeepEqual(t, timeout, opt.RequestTimeout())
+}
+
+// TestStartRequest tests the StartRequest method
+func TestStartRequest(t *testing.T) {
+	opt := NewRequestOptions([]RequestOption{WithRequestTimeout(time.Second)})
+	opt.StartRequest()
+	assert.True(t, !opt.StartTime().IsZero())
+}
+
+// TestStartTime tests the StartTime method
+func TestStartTime(t *testing.T) {
+	opt := NewRequestOptions([]RequestOption{WithRequestTimeout(time.Second)})
+	opt.StartRequest()
+	startTime := opt.StartTime()
+	assert.True(t, !startTime.IsZero())
+	assert.True(t, startTime.Before(time.Now()) || startTime.Equal(time.Now()))
+}
