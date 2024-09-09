@@ -17,8 +17,10 @@
 package hlog
 
 import (
+	"context"
 	"log"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/cloudwego/hertz/pkg/common/test/assert"
@@ -49,4 +51,75 @@ func TestSetLogger(t *testing.T) {
 	SetLogger(setLog)
 	assert.DeepEqual(t, logger, setLog)
 	assert.DeepEqual(t, sysLogger, setSysLog)
+}
+
+func TestSetOutput(t *testing.T) {
+	var w byteSliceWriter
+	SetOutput(&w)
+	Info("test output")
+	assert.True(t, len(w.b) > 0 && string(w.b)[len(w.b)-12:] == "test output\n")
+}
+
+func TestLevelToString(t *testing.T) {
+	assert.DeepEqual(t, "[Trace] ", LevelTrace.toString())
+	assert.DeepEqual(t, "[Debug] ", LevelDebug.toString())
+	assert.DeepEqual(t, "[Info] ", LevelInfo.toString())
+	assert.DeepEqual(t, "[Notice] ", LevelNotice.toString())
+	assert.DeepEqual(t, "[Warn] ", LevelWarn.toString())
+	assert.DeepEqual(t, "[Error] ", LevelError.toString())
+	assert.DeepEqual(t, "[Fatal] ", LevelFatal.toString())
+
+	// Test edge case
+	invalidLevel := Level(100)
+	assert.DeepEqual(t, "[?100] ", invalidLevel.toString())
+}
+
+func TestFullLoggerInterface(t *testing.T) {
+	var w byteSliceWriter
+	SetOutput(&w)
+
+	// Test all methods of FullLogger interface
+	Trace("trace")
+	Debug("debug")
+	Info("info")
+	Notice("notice")
+	Warn("warn")
+	Error("error")
+
+	Tracef("trace %s", "format")
+	Debugf("debug %s", "format")
+	Infof("info %s", "format")
+	Noticef("notice %s", "format")
+	Warnf("warn %s", "format")
+	Errorf("error %s", "format")
+
+	ctx := context.Background()
+	CtxTracef(ctx, "ctx trace %s", "format")
+	CtxDebugf(ctx, "ctx debug %s", "format")
+	CtxInfof(ctx, "ctx info %s", "format")
+	CtxNoticef(ctx, "ctx notice %s", "format")
+	CtxWarnf(ctx, "ctx warn %s", "format")
+	CtxErrorf(ctx, "ctx error %s", "format")
+
+	SetLevel(LevelInfo)
+
+	output := string(w.b)
+	assert.True(t, strings.Contains(output, "[Trace] trace"))
+	assert.True(t, strings.Contains(output, "[Debug] debug"))
+	assert.True(t, strings.Contains(output, "[Info] info"))
+	assert.True(t, strings.Contains(output, "[Notice] notice"))
+	assert.True(t, strings.Contains(output, "[Warn] warn"))
+	assert.True(t, strings.Contains(output, "[Error] error"))
+	assert.True(t, strings.Contains(output, "[Trace] trace format"))
+	assert.True(t, strings.Contains(output, "[Debug] debug format"))
+	assert.True(t, strings.Contains(output, "[Info] info format"))
+	assert.True(t, strings.Contains(output, "[Notice] notice format"))
+	assert.True(t, strings.Contains(output, "[Warn] warn format"))
+	assert.True(t, strings.Contains(output, "[Error] error format"))
+	assert.True(t, strings.Contains(output, "[Trace] ctx trace format"))
+	assert.True(t, strings.Contains(output, "[Debug] ctx debug format"))
+	assert.True(t, strings.Contains(output, "[Info] ctx info format"))
+	assert.True(t, strings.Contains(output, "[Notice] ctx notice format"))
+	assert.True(t, strings.Contains(output, "[Warn] ctx warn format"))
+	assert.True(t, strings.Contains(output, "[Error] ctx error format"))
 }
