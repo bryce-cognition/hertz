@@ -124,7 +124,9 @@ type Options struct {
 
 func (o *Options) Apply(opts []Option) {
 	for _, op := range opts {
-		op.F(o)
+		if op.F != nil {
+			op.F(o)
+		}
 	}
 }
 

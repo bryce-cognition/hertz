@@ -63,11 +63,122 @@ func TestDefaultOptions(t *testing.T) {
 
 // TestApplyCustomOptions test apply options with custom values after init
 func TestApplyCustomOptions(t *testing.T) {
-	options := NewOptions([]Option{})
-	options.Apply([]Option{
+	// Test initial options
+	options := NewOptions([]Option{
 		{F: func(o *Options) {
 			o.Network = "unix"
+			o.Addr = ":9999"
+			o.MaxRequestBodySize = 8 * 1024 * 1024
+			o.IdleTimeout = 5 * time.Minute
+			o.RedirectTrailingSlash = false
 		}},
 	})
+
 	assert.DeepEqual(t, "unix", options.Network)
+	assert.DeepEqual(t, ":9999", options.Addr)
+	assert.DeepEqual(t, 8*1024*1024, options.MaxRequestBodySize)
+	assert.DeepEqual(t, 5*time.Minute, options.IdleTimeout)
+	assert.False(t, options.RedirectTrailingSlash)
+
+	// Test applying an empty option
+	options.Apply([]Option{{}})
+	assert.DeepEqual(t, "unix", options.Network) // Ensure previous options are not affected
+
+	// Test overwriting a previously set option
+	options.Apply([]Option{
+		{F: func(o *Options) {
+			o.Network = "tcp"
+		}},
+	})
+	assert.DeepEqual(t, "tcp", options.Network)
+
+	// Test applying multiple options at once
+	options.Apply([]Option{
+		{F: func(o *Options) {
+			o.Addr = ":8080"
+		}},
+		{F: func(o *Options) {
+			o.MaxRequestBodySize = 16 * 1024 * 1024
+		}},
+	})
+	assert.DeepEqual(t, ":8080", options.Addr)
+	assert.DeepEqual(t, 16*1024*1024, options.MaxRequestBodySize)
+
+	// Test applying an option that doesn't change anything
+	options.Apply([]Option{
+		{F: func(o *Options) {}},
+	})
+	assert.DeepEqual(t, "tcp", options.Network)
+	assert.DeepEqual(t, ":8080", options.Addr)
+
+	// Test applying an option with a nil function
+	options.Apply([]Option{{F: nil}})
+	assert.DeepEqual(t, "tcp", options.Network)
+	assert.DeepEqual(t, ":8080", options.Addr)
+}
+
+// TestIndividualOptions tests individual option functions
+func TestIndividualOptions(t *testing.T) {
+	t.Run("KeepAliveTimeout", func(t *testing.T) {
+		options := NewOptions([]Option{
+			{F: func(o *Options) {
+				o.KeepAliveTimeout = 2 * time.Minute
+			}},
+		})
+		assert.DeepEqual(t, 2*time.Minute, options.KeepAliveTimeout)
+	})
+
+	t.Run("ReadTimeout", func(t *testing.T) {
+		options := NewOptions([]Option{
+			{F: func(o *Options) {
+				o.ReadTimeout = 1 * time.Minute
+			}},
+		})
+		assert.DeepEqual(t, 1*time.Minute, options.ReadTimeout)
+	})
+
+	t.Run("WriteTimeout", func(t *testing.T) {
+		options := NewOptions([]Option{
+			{F: func(o *Options) {
+				o.WriteTimeout = 30 * time.Second
+			}},
+		})
+		assert.DeepEqual(t, 30*time.Second, options.WriteTimeout)
+	})
+}
+
+// TestEdgeCases tests edge cases for options
+func TestEdgeCases(t *testing.T) {
+	t.Run("ZeroValues", func(t *testing.T) {
+		options := NewOptions([]Option{
+			{F: func(o *Options) {
+				o.MaxRequestBodySize = 0
+				o.ReadBufferSize = 0
+			}},
+		})
+		assert.DeepEqual(t, 0, options.MaxRequestBodySize)
+		assert.DeepEqual(t, 0, options.ReadBufferSize)
+	})
+
+	t.Run("NegativeValues", func(t *testing.T) {
+		options := NewOptions([]Option{
+			{F: func(o *Options) {
+				o.MaxRequestBodySize = -1
+				o.ReadBufferSize = -100
+			}},
+		})
+		assert.DeepEqual(t, -1, options.MaxRequestBodySize)
+		assert.DeepEqual(t, -100, options.ReadBufferSize)
+	})
+
+	t.Run("EmptyStrings", func(t *testing.T) {
+		options := NewOptions([]Option{
+			{F: func(o *Options) {
+				o.Network = ""
+				o.Addr = ""
+			}},
+		})
+		assert.DeepEqual(t, "", options.Network)
+		assert.DeepEqual(t, "", options.Addr)
+	})
 }
