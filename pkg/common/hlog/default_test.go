@@ -22,7 +22,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/cloudwego/hertz/pkg/common/test/assert"
+	"github.com/stretchr/testify/assert"
 )
 
 func initTestLogger() {
@@ -54,7 +54,7 @@ func TestDefaultLogger(t *testing.T) {
 	Warn("work may fail")
 	Error("work failed")
 
-	assert.DeepEqual(t, "[Trace] trace work\n"+
+	assert.Equal(t, "[Trace] trace work\n"+
 		"[Debug] received work order\n"+
 		"[Info] starting work\n"+
 		"[Notice] something happens in work\n"+
@@ -76,7 +76,7 @@ func TestDefaultFormatLogger(t *testing.T) {
 	Warnf("%s may fail", work)
 	Errorf("%s failed", work)
 
-	assert.DeepEqual(t, "[Trace] trace work\n"+
+	assert.Equal(t, "[Trace] trace work\n"+
 		"[Debug] received work order\n"+
 		"[Info] starting work\n"+
 		"[Notice] something happens in work\n"+
@@ -99,7 +99,7 @@ func TestCtxLogger(t *testing.T) {
 	CtxWarnf(ctx, "%s may fail", work)
 	CtxErrorf(ctx, "%s failed", work)
 
-	assert.DeepEqual(t, "[Trace] trace work\n"+
+	assert.Equal(t, "[Trace] trace work\n"+
 		"[Debug] received work order\n"+
 		"[Info] starting work\n"+
 		"[Notice] something happens in work\n"+
@@ -114,7 +114,7 @@ func TestFormatLoggerWithEscapedCharacters(t *testing.T) {
 	SetOutput(&w)
 
 	Infof("http://localhost:8080/ping?f=http://localhost:3000/hello?c=%E5%A4%A7hi%E5%93%A6%E5%95%8A%E8%AF%B4%E5%BE%97%E5%A5%BD")
-	assert.DeepEqual(t, "[Info] http://localhost:8080/ping?f=http://localhost:3000/hello?c=%E5%A4%A7hi%E5%93%A6%E5%95%8A%E8%AF%B4%E5%BE%97%E5%A5%BD\n", string(w.b))
+	assert.Equal(t, "[Info] http://localhost:8080/ping?f=http://localhost:3000/hello?c=%E5%A4%A7hi%E5%93%A6%E5%95%8A%E8%AF%B4%E5%BE%97%E5%A5%BD\n", string(w.b))
 }
 
 func TestSetLevel(t *testing.T) {
@@ -124,34 +124,34 @@ func TestSetLevel(t *testing.T) {
 	}
 
 	setLogger.SetLevel(LevelTrace)
-	assert.DeepEqual(t, LevelTrace, setLogger.level)
-	assert.DeepEqual(t, LevelTrace.toString(), setLogger.level.toString())
+	assert.Equal(t, LevelTrace, setLogger.level)
+	assert.Equal(t, LevelTrace.toString(), setLogger.level.toString())
 
 	setLogger.SetLevel(LevelDebug)
-	assert.DeepEqual(t, LevelDebug, setLogger.level)
-	assert.DeepEqual(t, LevelDebug.toString(), setLogger.level.toString())
+	assert.Equal(t, LevelDebug, setLogger.level)
+	assert.Equal(t, LevelDebug.toString(), setLogger.level.toString())
 
 	setLogger.SetLevel(LevelInfo)
-	assert.DeepEqual(t, LevelInfo, setLogger.level)
-	assert.DeepEqual(t, LevelInfo.toString(), setLogger.level.toString())
+	assert.Equal(t, LevelInfo, setLogger.level)
+	assert.Equal(t, LevelInfo.toString(), setLogger.level.toString())
 
 	setLogger.SetLevel(LevelNotice)
-	assert.DeepEqual(t, LevelNotice, setLogger.level)
-	assert.DeepEqual(t, LevelNotice.toString(), setLogger.level.toString())
+	assert.Equal(t, LevelNotice, setLogger.level)
+	assert.Equal(t, LevelNotice.toString(), setLogger.level.toString())
 
 	setLogger.SetLevel(LevelWarn)
-	assert.DeepEqual(t, LevelWarn, setLogger.level)
-	assert.DeepEqual(t, LevelWarn.toString(), setLogger.level.toString())
+	assert.Equal(t, LevelWarn, setLogger.level)
+	assert.Equal(t, LevelWarn.toString(), setLogger.level.toString())
 
 	setLogger.SetLevel(LevelError)
-	assert.DeepEqual(t, LevelError, setLogger.level)
-	assert.DeepEqual(t, LevelError.toString(), setLogger.level.toString())
+	assert.Equal(t, LevelError, setLogger.level)
+	assert.Equal(t, LevelError.toString(), setLogger.level.toString())
 
 	setLogger.SetLevel(LevelFatal)
-	assert.DeepEqual(t, LevelFatal, setLogger.level)
-	assert.DeepEqual(t, LevelFatal.toString(), setLogger.level.toString())
+	assert.Equal(t, LevelFatal, setLogger.level)
+	assert.Equal(t, LevelFatal.toString(), setLogger.level.toString())
 
 	setLogger.SetLevel(7)
-	assert.DeepEqual(t, 7, int(setLogger.level))
-	assert.DeepEqual(t, "[?7] ", setLogger.level.toString())
+	assert.Equal(t, 7, int(setLogger.level))
+	assert.Equal(t, "[?7] ", setLogger.level.toString())
 }
