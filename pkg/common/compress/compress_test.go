@@ -43,9 +43,11 @@ package compress
 
 import (
 	"bytes"
+	"compress/gzip"
 	"io"
-	"io/ioutil"
 	"testing"
+
+	"github.com/cloudwego/hertz/pkg/common/bytebufferpool"
 )
 
 func TestCompressNewCompressWriterPoolMap(t *testing.T) {
