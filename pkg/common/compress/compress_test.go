@@ -42,7 +42,9 @@
 package compress
 
 import (
+	"bytes"
 	"io"
+	"io/ioutil"
 	"testing"
 )
 
@@ -92,13 +94,63 @@ func TestCompressAppendGunzipBytes(t *testing.T) {
 }
 
 func TestCompressAppendGzipBytesLevel(t *testing.T) {
-	// test the byteSliceWriter case for WriteGzipLevel
+	// Test the byteSliceWriter case for WriteGzipLevel
 	dst1 := []byte("")
 	src1 := []byte("hello")
 	res1 := AppendGzipBytesLevel(dst1, src1, 5)
 	expectedRes1 := []byte{31, 139, 8, 0, 0, 0, 0, 0, 0, 255, 202, 72, 205, 201, 201, 7, 4, 0, 0, 255, 255, 134, 166, 16, 54, 5, 0, 0, 0}
 	if string(res1) != string(expectedRes1) {
 		t.Fatalf("Unexpected : %s. Expecting : %s", res1, expectedRes1)
+	}
+
+	// Test different compression levels
+	levels := []int{gzip.NoCompression, gzip.BestSpeed, gzip.BestCompression, gzip.DefaultCompression, gzip.HuffmanOnly}
+	for _, level := range levels {
+		res := AppendGzipBytesLevel(nil, []byte("test data"), level)
+		if len(res) == 0 {
+			t.Fatalf("Failed to compress data with level %d", level)
+		}
+	}
+
+	// Test with empty input
+	emptyRes := AppendGzipBytesLevel(nil, []byte{}, gzip.DefaultCompression)
+	if len(emptyRes) == 0 {
+		t.Fatal("Failed to compress empty input")
+	}
+}
+
+func TestWriteGzipLevel(t *testing.T) {
+	testData := []byte("test data for compression")
+
+	// Test with *byteSliceWriter
+	bsw := &byteSliceWriter{}
+	n, err := WriteGzipLevel(bsw, testData, gzip.DefaultCompression)
+	if err != nil {
+		t.Fatalf("WriteGzipLevel failed with *byteSliceWriter: %v", err)
+	}
+	if n != len(testData) {
+		t.Fatalf("WriteGzipLevel returned unexpected length: got %d, want %d", n, len(testData))
+	}
+
+	// Test with *bytes.Buffer
+	buf := &bytes.Buffer{}
+	n, err = WriteGzipLevel(buf, testData, gzip.DefaultCompression)
+	if err != nil {
+		t.Fatalf("WriteGzipLevel failed with *bytes.Buffer: %v", err)
+	}
+	if n != len(testData) {
+		t.Fatalf("WriteGzipLevel returned unexpected length: got %d, want %d", n, len(testData))
+	}
+
+	// Test with *bytebufferpool.ByteBuffer
+	bbp := bytebufferpool.Get()
+	defer bytebufferpool.Put(bbp)
+	n, err = WriteGzipLevel(bbp, testData, gzip.DefaultCompression)
+	if err != nil {
+		t.Fatalf("WriteGzipLevel failed with *bytebufferpool.ByteBuffer: %v", err)
+	}
+	if n != len(testData) {
+		t.Fatalf("WriteGzipLevel returned unexpected length: got %d, want %d", n, len(testData))
 	}
 }
 
