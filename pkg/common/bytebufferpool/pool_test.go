@@ -47,6 +47,11 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/cloudwego/hertz/pkg/common/test/assert"
+)
+
+	"github.com/cloudwego/hertz/pkg/common/test/assert"
 )
 
 func TestIndex(t *testing.T) {
@@ -139,12 +144,8 @@ func allocNBytes(dst []byte, n int) []byte {
 func TestPoolGet(t *testing.T) {
 	p := &Pool{}
 	b := p.Get()
-	if b == nil {
-		t.Fatal("Get() returned nil")
-	}
-	if len(b.B) != 0 {
-		t.Fatalf("Get() returned non-empty buffer: %d", len(b.B))
-	}
+	assert.NotNil(t, b)
+	assert.Assert(t, len(b.B) == 0, "Get() returned non-empty buffer: %d", len(b.B))
 }
 
 func TestPoolPut(t *testing.T) {
@@ -155,12 +156,8 @@ func TestPoolPut(t *testing.T) {
 
 	// Check if the buffer is reused
 	b2 := p.Get()
-	if len(b2.B) != 0 {
-		t.Fatalf("Put() didn't reset buffer: %d", len(b2.B))
-	}
+	assert.Assert(t, len(b2.B) == 0, "Put() didn't reset buffer: %d", len(b2.B))
 }
-
-
 
 func TestPoolConcurrent(t *testing.T) {
 	p := &Pool{}
@@ -192,12 +189,8 @@ func TestPoolConcurrent(t *testing.T) {
 	}
 
 	// Check if calibration occurred after concurrent usage
-	if atomic.LoadUint64(&p.defaultSize) == 0 {
-		t.Fatal("Calibration didn't update defaultSize after concurrent usage")
-	}
-	if atomic.LoadUint64(&p.maxSize) == 0 {
-		t.Fatal("Calibration didn't update maxSize after concurrent usage")
-	}
+	assert.Assert(t, atomic.LoadUint64(&p.defaultSize) != 0, "Calibration didn't update defaultSize after concurrent usage")
+	assert.Assert(t, atomic.LoadUint64(&p.maxSize) != 0, "Calibration didn't update maxSize after concurrent usage")
 }
 
 func TestPoolVariousSizes(t *testing.T) {
@@ -212,8 +205,52 @@ func TestPoolVariousSizes(t *testing.T) {
 
 	// Get a buffer after putting various sizes
 	b := p.Get()
-	if cap(b.B) < sizes[0] {
-		t.Fatalf("Expected minimum capacity of %d, got %d", sizes[0], cap(b.B))
-	}
+	assert.Assert(t, cap(b.B) >= sizes[0], "Expected minimum capacity of %d, got %d", sizes[0], cap(b.B))
 	p.Put(b)
+}
+
+func TestPoolEdgeCases(t *testing.T) {
+	p := &Pool{}
+
+	// Test with very small buffer
+	b := p.Get()
+	b.B = append(b.B, []byte("a")...)
+	p.Put(b)
+
+	// Test with very large buffer
+	b = p.Get()
+	b.B = make([]byte, 1<<20) // 1MB
+	p.Put(b)
+
+	// Test multiple Get() and Put() operations
+	for i := 0; i < 1000; i++ {
+		b := p.Get()
+		b.B = append(b.B, []byte("test")...)
+		p.Put(b)
+	}
+
+	// Verify that the pool is still functioning correctly
+	b = p.Get()
+	assert.NotNil(t, b)
+	assert.Assert(t, len(b.B) == 0, "Get() returned non-empty buffer after multiple operations")
+}
+
+func TestPoolCalibration(t *testing.T) {
+	p := &Pool{}
+
+	// Trigger calibration
+	for i := 0; i < calibrateCallsThreshold+1; i++ {
+		b := p.Get()
+		b.B = make([]byte, i%maxSize)
+		p.Put(b)
+	}
+
+	// Wait for calibration to complete
+	for atomic.LoadUint64(&p.calibrating) != 0 {
+		time.Sleep(time.Millisecond)
+	}
+
+	assert.Assert(t, atomic.LoadUint64(&p.defaultSize) != 0, "Calibration didn't update defaultSize")
+	assert.Assert(t, atomic.LoadUint64(&p.maxSize) != 0, "Calibration didn't update maxSize")
+	assert.Assert(t, atomic.LoadUint64(&p.maxSize) >= atomic.LoadUint64(&p.defaultSize), "maxSize should be >= defaultSize")
 }
