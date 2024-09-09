@@ -249,3 +249,9 @@ func TestRenderIndentedJSON(t *testing.T) {
 		assert.NotNil(t, err)
 	})
 }
+
+func TestXMLWriteContentType(t *testing.T) {
+	resp := &protocol.Response{}
+	(XML{}).WriteContentType(resp)
+	assert.DeepEqual(t, []byte("application/xml; charset=utf-8"), resp.Header.Peek("Content-Type"))
+}
