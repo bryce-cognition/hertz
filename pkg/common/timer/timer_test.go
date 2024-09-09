@@ -42,8 +42,11 @@
 package timer
 
 import (
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // test initTimer function
@@ -51,18 +54,18 @@ func TestTimerInitTimer(t *testing.T) {
 	// test nil Timer
 	var nilTimer *time.Timer
 	resNilTime := initTimer(nilTimer, 2*time.Second)
-	if resNilTime == nil {
-		t.Fatalf("Unexpected a nil. Expecting a Timer.")
-	}
+	assert.NotNil(t, resNilTime, "Expecting a Timer, got nil")
 
 	// test the panic
 	panicTimer := time.NewTimer(1 * time.Second)
 	resPanicTimer := wrapInitTimer(panicTimer, 2*time.Second)
-	if resPanicTimer != -1 {
-		t.Fatalf("Expecting a panic for Timer, but nil")
-	}
-	// sleep enough time to test next timer
-	time.Sleep(3 * time.Second)
+	assert.Equal(t, -1, resPanicTimer, "Expecting a panic for Timer")
+
+	// test with different timeout durations
+	shortTimer := initTimer(nil, 100*time.Millisecond)
+	assert.NotNil(t, shortTimer, "Expecting a Timer for short duration")
+	longTimer := initTimer(nil, 5*time.Second)
+	assert.NotNil(t, longTimer, "Expecting a Timer for long duration")
 }
 
 func wrapInitTimer(t *time.Timer, timeout time.Duration) (ret int) {
@@ -81,23 +84,53 @@ func wrapInitTimer(t *time.Timer, timeout time.Duration) (ret int) {
 func TestTimerStopTimer(t *testing.T) {
 	normalTimer := time.NewTimer(3 * time.Second)
 	stopTimer(normalTimer)
-	if normalTimer.Stop() {
-		t.Fatalf("Expecting timer stopped, but it doesn't")
-	}
+	assert.False(t, normalTimer.Stop(), "Expecting timer to be stopped")
+
+	// Test stopping an already expired timer
+	expiredTimer := time.NewTimer(1 * time.Millisecond)
+	time.Sleep(2 * time.Millisecond)
+	stopTimer(expiredTimer)
+	assert.False(t, expiredTimer.Stop(), "Expecting expired timer to be stopped")
 }
 
 func TestTimerAcquireTimer(t *testing.T) {
 	normalTimer := AcquireTimer(2 * time.Second)
-	if normalTimer == nil {
-		t.Fatalf("Unexpected nil, expecting a timer")
-	}
+	assert.NotNil(t, normalTimer, "Expecting a timer, got nil")
 	ReleaseTimer(normalTimer)
+
+	// Test acquiring multiple timers
+	timer1 := AcquireTimer(1 * time.Second)
+	timer2 := AcquireTimer(2 * time.Second)
+	assert.NotEqual(t, timer1, timer2, "Acquired timers should be different")
+	ReleaseTimer(timer1)
+	ReleaseTimer(timer2)
 }
 
 func TestTimerReleaseTimer(t *testing.T) {
 	normalTimer := AcquireTimer(2 * time.Second)
 	ReleaseTimer(normalTimer)
-	if normalTimer.Stop() {
-		t.Fatalf("Expecting the timer is released.")
+	assert.False(t, normalTimer.Stop(), "Expecting the timer to be released")
+
+	// Test releasing the same timer multiple times
+	ReleaseTimer(normalTimer)
+	assert.False(t, normalTimer.Stop(), "Expecting no panic when releasing the same timer multiple times")
+}
+
+func TestConcurrentTimerUsage(t *testing.T) {
+	const goroutines = 100
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			defer wg.Done()
+			timer := AcquireTimer(time.Duration(i) * time.Millisecond)
+			time.Sleep(1 * time.Millisecond)
+			ReleaseTimer(timer)
+		}()
 	}
+
+	wg.Wait()
+	// If we reach here without deadlock or panic, the test passes
+	assert.True(t, true, "Concurrent timer usage should not cause deadlock or panic")
 }
