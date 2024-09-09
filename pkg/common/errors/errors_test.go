@@ -42,6 +42,7 @@ package errors
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/cloudwego/hertz/pkg/common/test/assert"
@@ -58,6 +59,8 @@ func TestError(t *testing.T) {
 
 	assert.DeepEqual(t, err.SetType(ErrorTypePublic), err)
 	assert.DeepEqual(t, ErrorTypePublic, err.Type)
+	assert.True(t, err.IsType(ErrorTypePublic))
+	assert.False(t, err.IsType(ErrorTypePrivate))
 
 	assert.DeepEqual(t, err.SetMeta("some data"), err)
 	assert.DeepEqual(t, "some data", err.Meta)
@@ -93,6 +96,16 @@ func TestError(t *testing.T) {
 	}
 	err.SetMeta(customError{status: "200", data: "other data"}) // nolint: errcheck
 	assert.DeepEqual(t, customError{status: "200", data: "other data"}, err.JSON())
+
+	// Test SetType with multiple error types
+	err.SetType(ErrorTypePrivate | ErrorTypeBind)
+	assert.True(t, err.IsType(ErrorTypePrivate))
+	assert.True(t, err.IsType(ErrorTypeBind))
+	assert.False(t, err.IsType(ErrorTypePublic))
+
+	// Test SetMeta with nil
+	err.SetMeta(nil)
+	assert.DeepEqual(t, map[string]interface{}{"error": baseError.Error()}, err.JSON())
 }
 
 func TestErrorSlice(t *testing.T) {
@@ -120,22 +133,88 @@ Error #03: third
 		map[string]interface{}{"error": "second", "meta": "some data"},
 		map[string]interface{}{"error": "third", "status": "400"},
 	}, errs.JSON())
-	errs = ErrorChain{
+
+	// Test single error JSON
+	singleErr := ErrorChain{
 		{Err: errors.New("first"), Type: ErrorTypePrivate},
 	}
+	assert.DeepEqual(t, map[string]interface{}{"error": "first"}, singleErr.JSON())
 
-	assert.DeepEqual(t, map[string]interface{}{"error": "first"}, errs.JSON())
-	errs = ErrorChain{}
-	assert.DeepEqual(t, true, errs.Last() == nil)
-	assert.Nil(t, errs.JSON())
-	assert.DeepEqual(t, "", errs.String())
+	// Test empty ErrorChain
+	emptyErrs := ErrorChain{}
+	assert.DeepEqual(t, true, emptyErrs.Last() == nil)
+	assert.Nil(t, emptyErrs.JSON())
+	assert.DeepEqual(t, "", emptyErrs.String())
+
+	// Test ByType with multiple error types
+	mixedErrs := ErrorChain{
+		{Err: errors.New("bind error"), Type: ErrorTypeBind},
+		{Err: errors.New("render error"), Type: ErrorTypeRender},
+		{Err: errors.New("public error"), Type: ErrorTypePublic},
+	}
+	assert.DeepEqual(t, []string{"bind error"}, mixedErrs.ByType(ErrorTypeBind).Errors())
+	assert.DeepEqual(t, []string{"render error"}, mixedErrs.ByType(ErrorTypeRender).Errors())
+	assert.DeepEqual(t, []string{"public error"}, mixedErrs.ByType(ErrorTypePublic).Errors())
+	assert.DeepEqual(t, []string{"bind error", "render error"}, mixedErrs.ByType(ErrorTypeBind|ErrorTypeRender).Errors())
+
+	// Test JSON with different Meta types
+	jsonErrs := ErrorChain{
+		{Err: errors.New("error1"), Type: ErrorTypePrivate, Meta: 42},
+		{Err: errors.New("error2"), Type: ErrorTypePublic, Meta: []string{"a", "b"}},
+	}
+	assert.DeepEqual(t, []interface{}{
+		map[string]interface{}{"error": "error1", "meta": 42},
+		map[string]interface{}{"error": "error2", "meta": []string{"a", "b"}},
+	}, jsonErrs.JSON())
 }
 
 func TestErrorFormat(t *testing.T) {
 	err := Newf(ErrorTypeAny, nil, "caused by %s", "reason")
 	assert.DeepEqual(t, New(errors.New("caused by reason"), ErrorTypeAny, nil), err)
+
 	publicErr := NewPublicf("caused by %s", "reason")
 	assert.DeepEqual(t, New(errors.New("caused by reason"), ErrorTypePublic, nil), publicErr)
+	assert.True(t, publicErr.IsType(ErrorTypePublic))
+
 	privateErr := NewPrivatef("caused by %s", "reason")
 	assert.DeepEqual(t, New(errors.New("caused by reason"), ErrorTypePrivate, nil), privateErr)
+	assert.True(t, privateErr.IsType(ErrorTypePrivate))
+
+	// Test New function
+	customErr := New(errors.New("custom error"), ErrorTypeAny, "meta data")
+	assert.DeepEqual(t, "custom error", customErr.Error())
+	assert.DeepEqual(t, ErrorTypeAny, customErr.Type)
+	assert.DeepEqual(t, "meta data", customErr.Meta)
+
+	// Test NewPublic and NewPrivate functions
+	publicStrErr := NewPublic("public error")
+	assert.True(t, publicStrErr.IsType(ErrorTypePublic))
+	assert.DeepEqual(t, "public error", publicStrErr.Error())
+
+	privateStrErr := NewPrivate("private error")
+	assert.True(t, privateStrErr.IsType(ErrorTypePrivate))
+	assert.DeepEqual(t, "private error", privateStrErr.Error())
+}
+
+func TestErrorUnwrap(t *testing.T) {
+	baseError := errors.New("base error")
+	err := &Error{
+		Err:  baseError,
+		Type: ErrorTypePrivate,
+	}
+
+	unwrappedErr := err.Unwrap()
+	assert.DeepEqual(t, baseError, unwrappedErr)
+	assert.True(t, errors.Is(err, baseError))
+
+	// Test with a wrapped error
+	wrappedErr := fmt.Errorf("wrapped: %w", baseError)
+	err = &Error{
+		Err:  wrappedErr,
+		Type: ErrorTypePublic,
+	}
+
+	unwrappedErr = err.Unwrap()
+	assert.DeepEqual(t, wrappedErr, unwrappedErr)
+	assert.True(t, errors.Is(err, baseError))
 }
