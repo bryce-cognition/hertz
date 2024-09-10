@@ -32,14 +32,14 @@ type (
 	Option func(o *options)
 )
 
-func defaultRecoveryHandler(c context.Context, ctx *app.RequestContext, err interface{}, stack []byte) {
+func DefaultRecoveryHandler(c context.Context, ctx *app.RequestContext, err interface{}, stack []byte) {
 	hlog.SystemLogger().CtxErrorf(c, "[Recovery] err=%v\nstack=%s", err, stack)
 	ctx.AbortWithStatus(consts.StatusInternalServerError)
 }
 
-func newOptions(opts ...Option) *options {
+func NewOptions(opts ...Option) *options {
 	cfg := &options{
-		recoveryHandler: defaultRecoveryHandler,
+		recoveryHandler: DefaultRecoveryHandler,
 	}
 
 	for _, opt := range opts {
