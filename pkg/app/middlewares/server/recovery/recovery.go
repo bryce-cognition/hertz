@@ -37,7 +37,7 @@ var (
 // By default, it will print the time, content, and stack information of the error and write a 500.
 // Overriding the Config configuration, you can customize the error printing logic.
 func Recovery(opts ...Option) app.HandlerFunc {
-	cfg := NewOptions(opts...)
+	cfg := newOptions(opts...)
 
 	return func(c context.Context, ctx *app.RequestContext) {
 		defer func() {

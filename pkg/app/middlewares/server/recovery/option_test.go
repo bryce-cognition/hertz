@@ -29,8 +29,8 @@ import (
 )
 
 func TestDefaultOption(t *testing.T) {
-	opts := NewOptions()
-	assert.DeepEqual(t, fmt.Sprintf("%p", DefaultRecoveryHandler), fmt.Sprintf("%p", opts.recoveryHandler))
+	opts := newOptions()
+	assert.DeepEqual(t, fmt.Sprintf("%p", defaultRecoveryHandler), fmt.Sprintf("%p", opts.recoveryHandler))
 }
 
 func newRecoveryHandler(c context.Context, ctx *app.RequestContext, err interface{}, stack []byte) {
@@ -40,6 +40,6 @@ func newRecoveryHandler(c context.Context, ctx *app.RequestContext, err interfac
 }
 
 func TestOption(t *testing.T) {
-	opts := NewOptions(WithRecoveryHandler(newRecoveryHandler))
+	opts := newOptions(WithRecoveryHandler(newRecoveryHandler))
 	assert.DeepEqual(t, fmt.Sprintf("%p", newRecoveryHandler), fmt.Sprintf("%p", opts.recoveryHandler))
 }
