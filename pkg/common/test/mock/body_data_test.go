@@ -37,11 +37,36 @@ func TestGenerateCreateFixedBody(t *testing.T) {
 }
 
 func TestGenerateCreateChunkedBody(t *testing.T) {
-	bodySize := 10
-	b := CreateFixedBody(bodySize)
-	trailer := map[string]string{"Foo": "chunked shit"}
-	expectCb := "1\r\n0\r\n2\r\n12\r\n3\r\n345\r\n4\r\n6789\r\n0\r\nFoo: chunked shit\r\n\r\n"
+	t.Run("With trailer", func(t *testing.T) {
+		bodySize := 10
+		b := CreateFixedBody(bodySize)
+		trailer := map[string]string{"Foo": "chunked shit"}
+		expectCb := "1\r\n0\r\n2\r\n12\r\n3\r\n345\r\n4\r\n6789\r\n0\r\nFoo: chunked shit\r\n\r\n"
 
-	cb := CreateChunkedBody(b, trailer, true)
-	assert.DeepEqual(t, expectCb, string(cb))
+		cb := CreateChunkedBody(b, trailer, true)
+		assert.DeepEqual(t, expectCb, string(cb))
+	})
+
+	t.Run("Without trailer", func(t *testing.T) {
+		bodySize := 5
+		b := CreateFixedBody(bodySize)
+		expectCb := "1\r\n0\r\n2\r\n12\r\n2\r\n34\r\n"
+
+		cb := CreateChunkedBody(b, nil, false)
+		assert.DeepEqual(t, expectCb, string(cb))
+	})
+
+	t.Run("Empty body", func(t *testing.T) {
+		cb := CreateChunkedBody([]byte{}, nil, false)
+		assert.DeepEqual(t, "", string(cb))
+	})
+
+	t.Run("Nil trailer", func(t *testing.T) {
+		bodySize := 3
+		b := CreateFixedBody(bodySize)
+		expectCb := "1\r\n0\r\n2\r\n12\r\n0\r\n\r\n"
+
+		cb := CreateChunkedBody(b, nil, true)
+		assert.DeepEqual(t, expectCb, string(cb))
+	})
 }
