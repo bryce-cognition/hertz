@@ -138,3 +138,117 @@ func TestWeightedBalancerDeleteAndName(t *testing.T) {
 	ins = balancer.Pick(e)
 	assert.Nil(t, ins)
 }
+
+func TestWeightedBalancerRebalanceAndPickEdgeCases(t *testing.T) {
+	balancer := NewWeightedBalancer()
+
+	// Test Rebalance with empty instance list
+	emptyResult := discovery.Result{
+		Instances: []discovery.Instance{},
+		CacheKey:  "empty",
+	}
+	balancer.Rebalance(emptyResult)
+	ins := balancer.Pick(emptyResult)
+	assert.Nil(t, ins)
+
+	// Test Rebalance with instances having zero or negative weights
+	mixedWeightInsList := []discovery.Instance{
+		discovery.NewInstance("tcp", "127.0.0.1:8881", 0, nil),
+		discovery.NewInstance("tcp", "127.0.0.1:8882", -5, nil),
+		discovery.NewInstance("tcp", "127.0.0.1:8883", 10, nil),
+	}
+	mixedWeightResult := discovery.Result{
+		Instances: mixedWeightInsList,
+		CacheKey:  "mixed_weight",
+	}
+	balancer.Rebalance(mixedWeightResult)
+
+	// Verify that only instances with positive weights are picked
+	pickedAddresses := make(map[string]int)
+	totalPicks := 1000
+	for i := 0; i < totalPicks; i++ {
+		ins = balancer.Pick(mixedWeightResult)
+		assert.NotNil(t, ins)
+		pickedAddresses[ins.Address().String()]++
+	}
+	assert.DeepEqual(t, 1, len(pickedAddresses))
+	assert.DeepEqual(t, totalPicks, pickedAddresses["127.0.0.1:8883"])
+	assert.DeepEqual(t, 0, pickedAddresses["127.0.0.1:8881"])
+	assert.DeepEqual(t, 0, pickedAddresses["127.0.0.1:8882"])
+
+	// Test Pick with non-existent cache key
+	nonExistentResult := discovery.Result{
+		Instances: []discovery.Instance{
+			discovery.NewInstance("tcp", "127.0.0.1:8884", 10, nil),
+		},
+		CacheKey: "non_existent",
+	}
+	ins = balancer.Pick(nonExistentResult)
+	assert.Nil(t, ins)
+
+	// Test Rebalance with all zero or negative weights
+	allZeroOrNegativeInsList := []discovery.Instance{
+		discovery.NewInstance("tcp", "127.0.0.1:8885", 0, nil),
+		discovery.NewInstance("tcp", "127.0.0.1:8886", -5, nil),
+		discovery.NewInstance("tcp", "127.0.0.1:8887", -10, nil),
+	}
+	allZeroOrNegativeResult := discovery.Result{
+		Instances: allZeroOrNegativeInsList,
+		CacheKey:  "all_zero_or_negative",
+	}
+	balancer.Rebalance(allZeroOrNegativeResult)
+	ins = balancer.Pick(allZeroOrNegativeResult)
+	assert.Nil(t, ins)
+
+	// Test Pick after Rebalance
+	balancer.Rebalance(mixedWeightResult)
+	ins = balancer.Pick(mixedWeightResult)
+	assert.NotNil(t, ins)
+	assert.DeepEqual(t, "127.0.0.1:8883", ins.Address().String())
+
+	// Test Delete
+	balancer.Delete(mixedWeightResult.CacheKey)
+	ins = balancer.Pick(mixedWeightResult)
+	assert.Nil(t, ins)
+
+	// Test Rebalance and Pick with mixed weights including positive ones
+	mixedWeightsWithPositive := []discovery.Instance{
+		discovery.NewInstance("tcp", "127.0.0.1:8881", 0, nil),
+		discovery.NewInstance("tcp", "127.0.0.1:8882", -5, nil),
+		discovery.NewInstance("tcp", "127.0.0.1:8883", 10, nil),
+		discovery.NewInstance("tcp", "127.0.0.1:8884", 20, nil),
+	}
+	mixedWeightsWithPositiveResult := discovery.Result{
+		Instances: mixedWeightsWithPositive,
+		CacheKey:  "mixed_weights_with_positive",
+	}
+	balancer.Rebalance(mixedWeightsWithPositiveResult)
+
+	pickedAddresses = make(map[string]int)
+	totalPicks = 1000000 // Increased for better statistical accuracy
+	for i := 0; i < totalPicks; i++ {
+		ins = balancer.Pick(mixedWeightsWithPositiveResult)
+		assert.NotNil(t, ins)
+		pickedAddresses[ins.Address().String()]++
+	}
+
+	// Verify that only instances with positive weights are picked
+	assert.DeepEqual(t, 2, len(pickedAddresses))
+	assert.DeepEqual(t, 0, pickedAddresses["127.0.0.1:8881"])
+	assert.DeepEqual(t, 0, pickedAddresses["127.0.0.1:8882"])
+	assert.DeepEqual(t, true, pickedAddresses["127.0.0.1:8883"] > 0)
+	assert.DeepEqual(t, true, pickedAddresses["127.0.0.1:8884"] > 0)
+	assert.DeepEqual(t, totalPicks, pickedAddresses["127.0.0.1:8883"]+pickedAddresses["127.0.0.1:8884"])
+
+	// Verify the distribution of picked addresses
+	totalWeight := 30 // 10 + 20
+	expectedRatio8883 := float64(10) / float64(totalWeight)
+	expectedRatio8884 := float64(20) / float64(totalWeight)
+	actualRatio8883 := float64(pickedAddresses["127.0.0.1:8883"]) / float64(totalPicks)
+	actualRatio8884 := float64(pickedAddresses["127.0.0.1:8884"]) / float64(totalPicks)
+
+	// Allow for a 2% margin of error in the distribution
+	marginOfError := 0.02
+	assert.DeepEqual(t, true, math.Abs(expectedRatio8883-actualRatio8883) < marginOfError)
+	assert.DeepEqual(t, true, math.Abs(expectedRatio8884-actualRatio8884) < marginOfError)
+}
