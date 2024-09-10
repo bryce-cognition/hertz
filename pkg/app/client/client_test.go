@@ -2523,3 +2523,221 @@ func TestClientRetryErr(t *testing.T) {
 		l.Unlock()
 	})
 }
+
+func TestClientDo(t *testing.T) {
+	opt := config.NewOptions([]config.Option{})
+	opt.Addr = "127.0.0.1:10138"
+	engine := route.NewEngine(opt)
+	engine.GET("/test", func(c context.Context, ctx *app.RequestContext) {
+		ctx.JSON(200, map[string]string{"message": "success"})
+	})
+	go engine.Run()
+	defer func() {
+		engine.Close()
+	}()
+	time.Sleep(1 * time.Second)
+
+	client, _ := NewClient()
+	req := protocol.AcquireRequest()
+	resp := protocol.AcquireResponse()
+	defer func() {
+		protocol.ReleaseRequest(req)
+		protocol.ReleaseResponse(resp)
+	}()
+
+	req.SetRequestURI("http://127.0.0.1:10138/test")
+	req.SetMethod(consts.MethodGet)
+
+	err := client.Do(context.Background(), req, resp)
+	assert.Nil(t, err)
+	assert.DeepEqual(t, 200, resp.StatusCode())
+	assert.DeepEqual(t, []byte(`{"message":"success"}`), resp.Body())
+}
+
+func TestClientDoTimeout(t *testing.T) {
+	opt := config.NewOptions([]config.Option{})
+	opt.Addr = "127.0.0.1:10139"
+	engine := route.NewEngine(opt)
+	engine.GET("/timeout", func(c context.Context, ctx *app.RequestContext) {
+		time.Sleep(2 * time.Second)
+		ctx.JSON(200, map[string]string{"message": "success"})
+	})
+	go engine.Run()
+	defer func() {
+		engine.Close()
+	}()
+	time.Sleep(1 * time.Second)
+
+	client, _ := NewClient()
+	req := protocol.AcquireRequest()
+	resp := protocol.AcquireResponse()
+	defer func() {
+		protocol.ReleaseRequest(req)
+		protocol.ReleaseResponse(resp)
+	}()
+
+	req.SetRequestURI("http://127.0.0.1:10139/timeout")
+	req.SetMethod(consts.MethodGet)
+
+	err := client.DoTimeout(context.Background(), req, resp, 1*time.Second)
+	assert.NotNil(t, err)
+	assert.True(t, strings.Contains(err.Error(), "timeout"))
+}
+
+func TestClientDoDeadline(t *testing.T) {
+	opt := config.NewOptions([]config.Option{})
+	opt.Addr = "127.0.0.1:10140"
+	engine := route.NewEngine(opt)
+	engine.GET("/deadline", func(c context.Context, ctx *app.RequestContext) {
+		time.Sleep(2 * time.Second)
+		ctx.JSON(200, map[string]string{"message": "success"})
+	})
+	go engine.Run()
+	defer func() {
+		engine.Close()
+	}()
+	time.Sleep(1 * time.Second)
+
+	client, _ := NewClient()
+	req := protocol.AcquireRequest()
+	resp := protocol.AcquireResponse()
+	defer func() {
+		protocol.ReleaseRequest(req)
+		protocol.ReleaseResponse(resp)
+	}()
+
+	req.SetRequestURI("http://127.0.0.1:10140/deadline")
+	req.SetMethod(consts.MethodGet)
+
+	deadline := time.Now().Add(1 * time.Second)
+	err := client.DoDeadline(context.Background(), req, resp, deadline)
+	assert.NotNil(t, err)
+	assert.True(t, strings.Contains(err.Error(), "timeout"))
+}
+
+func TestClientDoRedirects(t *testing.T) {
+	opt := config.NewOptions([]config.Option{})
+	opt.Addr = "127.0.0.1:10141"
+	engine := route.NewEngine(opt)
+	engine.GET("/redirect", func(c context.Context, ctx *app.RequestContext) {
+		ctx.Redirect(302, []byte("/final"))
+	})
+	engine.GET("/final", func(c context.Context, ctx *app.RequestContext) {
+		ctx.JSON(200, map[string]string{"message": "redirected"})
+	})
+	go engine.Run()
+	defer func() {
+		engine.Close()
+	}()
+	time.Sleep(1 * time.Second)
+
+	client, _ := NewClient()
+	req := protocol.AcquireRequest()
+	resp := protocol.AcquireResponse()
+	defer func() {
+		protocol.ReleaseRequest(req)
+		protocol.ReleaseResponse(resp)
+	}()
+
+	req.SetRequestURI("http://127.0.0.1:10141/redirect")
+	req.SetMethod(consts.MethodGet)
+
+	err := client.DoRedirects(context.Background(), req, resp, 5)
+	assert.Nil(t, err)
+	assert.DeepEqual(t, 200, resp.StatusCode())
+	assert.DeepEqual(t, []byte(`{"message":"redirected"}`), resp.Body())
+}
+
+func TestClientGetAndPost(t *testing.T) {
+	opt := config.NewOptions([]config.Option{})
+	opt.Addr = "127.0.0.1:10142"
+	engine := route.NewEngine(opt)
+	engine.GET("/get", func(c context.Context, ctx *app.RequestContext) {
+		ctx.JSON(200, map[string]string{"method": "GET"})
+	})
+	engine.POST("/post", func(c context.Context, ctx *app.RequestContext) {
+		ctx.JSON(200, map[string]string{"method": "POST", "body": string(ctx.Request.Body())})
+	})
+	go engine.Run()
+	defer func() {
+		engine.Close()
+	}()
+	time.Sleep(1 * time.Second)
+
+	client, _ := NewClient()
+
+	// Test Get
+	statusCode, body, err := client.Get(context.Background(), nil, "http://127.0.0.1:10142/get")
+	assert.Nil(t, err)
+	assert.DeepEqual(t, 200, statusCode)
+	assert.DeepEqual(t, []byte(`{"method":"GET"}`), body)
+
+	// Test Post
+	postArgs := &protocol.Args{}
+	postArgs.Set("key", "value")
+	statusCode, body, err = client.Post(context.Background(), nil, "http://127.0.0.1:10142/post", postArgs)
+	assert.Nil(t, err)
+	assert.DeepEqual(t, 200, statusCode)
+	assert.DeepEqual(t, []byte(`{"method":"POST","body":"key=value"}`), body)
+}
+
+func TestClientGetTimeoutAndDeadline(t *testing.T) {
+	opt := config.NewOptions([]config.Option{})
+	opt.Addr = "127.0.0.1:10143"
+	engine := route.NewEngine(opt)
+	engine.GET("/slow", func(c context.Context, ctx *app.RequestContext) {
+		time.Sleep(2 * time.Second)
+		ctx.JSON(200, map[string]string{"message": "slow response"})
+	})
+	go engine.Run()
+	defer func() {
+		engine.Close()
+	}()
+	time.Sleep(1 * time.Second)
+
+	client, _ := NewClient()
+
+	// Test GetTimeout
+	_, _, err := client.GetTimeout(context.Background(), nil, "http://127.0.0.1:10143/slow", 1*time.Second)
+	assert.NotNil(t, err)
+	assert.True(t, strings.Contains(err.Error(), "timeout"))
+
+	// Test GetDeadline
+	deadline := time.Now().Add(1 * time.Second)
+	_, _, err = client.GetDeadline(context.Background(), nil, "http://127.0.0.1:10143/slow", deadline)
+	assert.NotNil(t, err)
+	assert.True(t, strings.Contains(err.Error(), "timeout"))
+}
+
+func TestClientSetRetryIf(t *testing.T) {
+	opt := config.NewOptions([]config.Option{})
+	opt.Addr = "127.0.0.1:10144"
+	engine := route.NewEngine(opt)
+	var requestCount int
+	engine.GET("/retry", func(c context.Context, ctx *app.RequestContext) {
+		requestCount++
+		if requestCount <= 2 {
+			ctx.SetStatusCode(500)
+		} else {
+			ctx.JSON(200, map[string]string{"message": "success after retry"})
+		}
+	})
+	go engine.Run()
+	defer func() {
+		engine.Close()
+	}()
+	time.Sleep(1 * time.Second)
+
+	client, _ := NewClient(WithRetryConfig(retry.WithMaxAttemptTimes(3)))
+	client.SetRetryIfFunc(func(req *protocol.Request, resp *protocol.Response, err error) bool {
+		return err != nil || resp.StatusCode() == 500
+	})
+
+	statusCode, body, err := client.Get(context.Background(), nil, "http://127.0.0.1:10144/retry")
+	assert.Nil(t, err)
+	assert.DeepEqual(t, 200, statusCode)
+	assert.DeepEqual(t, []byte(`{"message":"success after retry"}`), body)
+	assert.DeepEqual(t, 3, requestCount)
+}
+
+
