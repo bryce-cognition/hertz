@@ -139,6 +139,80 @@ func TestCacheKey(t *testing.T) {
 	assert.Assert(t, uniqueKey == "hello|world|{15s 5m0s}")
 }
 
+func TestGetInstanceErrorHandling(t *testing.T) {
+	// Test case for resolver error
+	errResolver := &discovery.SynthesizedResolver{
+		TargetFunc: func(ctx context.Context, target *discovery.TargetInfo) string {
+			return target.Host
+		},
+		ResolveFunc: func(ctx context.Context, key string) (discovery.Result, error) {
+			return discovery.Result{}, fmt.Errorf("resolver error")
+		},
+		NameFunc: func() string { return "ErrorResolver" },
+	}
+
+	blf := NewBalancerFactory(Config{
+		Balancer: NewWeightedBalancer(),
+		LbOpts:   DefaultLbOpts,
+		Resolver: errResolver,
+	})
+
+	req := &protocol.Request{}
+	req.SetHost("error-service")
+
+	_, err := blf.GetInstance(context.Background(), req)
+	assert.Assert(t, err != nil, "Expected error, got nil")
+	assert.Assert(t, err.Error() == "resolver error", "Unexpected error message")
+
+	// Test case for no instances available
+	noInstanceResolver := &discovery.SynthesizedResolver{
+		TargetFunc: func(ctx context.Context, target *discovery.TargetInfo) string {
+			return target.Host
+		},
+		ResolveFunc: func(ctx context.Context, key string) (discovery.Result, error) {
+			return discovery.Result{CacheKey: "no-instance", Instances: []discovery.Instance{}}, nil
+		},
+		NameFunc: func() string { return "NoInstanceResolver" },
+	}
+
+	blfNoInstance := NewBalancerFactory(Config{
+		Balancer: NewWeightedBalancer(),
+		LbOpts:   DefaultLbOpts,
+		Resolver: noInstanceResolver,
+	})
+
+	reqNoInstance := &protocol.Request{}
+	reqNoInstance.SetHost("no-instance-service")
+
+	_, err = blfNoInstance.GetInstance(context.Background(), reqNoInstance)
+	assert.Assert(t, err != nil, "Expected error for no instances, got nil")
+	assert.Assert(t, err.Error() == "instance not found", "Unexpected error message for no instances")
+
+	// Test case for invalid instance
+	invalidInstanceResolver := &discovery.SynthesizedResolver{
+		TargetFunc: func(ctx context.Context, target *discovery.TargetInfo) string {
+			return target.Host
+		},
+		ResolveFunc: func(ctx context.Context, key string) (discovery.Result, error) {
+			return discovery.Result{CacheKey: "invalid-instance", Instances: []discovery.Instance{nil}}, nil
+		},
+		NameFunc: func() string { return "InvalidInstanceResolver" },
+	}
+
+	blfInvalidInstance := NewBalancerFactory(Config{
+		Balancer: NewWeightedBalancer(),
+		LbOpts:   DefaultLbOpts,
+		Resolver: invalidInstanceResolver,
+	})
+
+	reqInvalidInstance := &protocol.Request{}
+	reqInvalidInstance.SetHost("invalid-instance-service")
+
+	_, err = blfInvalidInstance.GetInstance(context.Background(), reqInvalidInstance)
+	assert.Assert(t, err != nil, "Expected error for invalid instance, got nil")
+	assert.Assert(t, err.Error() == "invalid instance", "Unexpected error message for invalid instance")
+}
+
 type mockLoadbalancer struct {
 	rebalanceFunc func(ch discovery.Result)
 	deleteFunc    func(key string)
