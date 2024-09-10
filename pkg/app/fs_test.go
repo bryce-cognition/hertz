@@ -50,6 +50,7 @@ import (
 	"math/rand"
 	"os"
 	"path"
+	"strings"
 	"testing"
 	"time"
 
@@ -694,4 +695,42 @@ func TestFileSmallUpdateByteRange(t *testing.T) {
 	assert.Nil(t, err)
 	assert.DeepEqual(t, 1, r.startPos)
 	assert.DeepEqual(t, 2, r.endPos)
+}
+
+func TestParseByteRangeEdgeCases(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name           string
+		byteRange      string
+		contentLength  int
+		expectedStart  int
+		expectedEnd    int
+		expectedErrMsg string
+	}{
+		{"Invalid unit", "kilobytes=0-1000", 2000, 0, 0, "unsupported range units"},
+		{"Missing end position", "bytes=500-", 1000, 500, 999, ""},
+		{"End position exceeds content length", "bytes=0-2000", 1000, 0, 999, ""},
+		{"Start position exceeds end position", "bytes=999-500", 1000, 0, 0, "the start position of byte range cannot exceed the end position"},
+		{"Start position exceeds content length", "bytes=2000-3000", 1000, 0, 0, "the start position of byte range cannot exceed"},
+		{"Negative range", "bytes=-500", 1000, 500, 999, ""},
+		{"Zero-length range", "bytes=500-500", 1000, 500, 500, ""},
+	}
+
+	for _, tc := range testCases {
+		tc := tc // capture range variable
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			start, end, err := ParseByteRange([]byte(tc.byteRange), tc.contentLength)
+
+			if tc.expectedErrMsg != "" {
+				assert.NotNil(t, err)
+				assert.True(t, strings.Contains(err.Error(), tc.expectedErrMsg))
+			} else {
+				assert.Nil(t, err)
+				assert.DeepEqual(t, tc.expectedStart, start)
+				assert.DeepEqual(t, tc.expectedEnd, end)
+			}
+		})
+	}
 }
