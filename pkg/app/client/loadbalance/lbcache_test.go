@@ -187,6 +187,30 @@ func TestGetInstanceErrorHandling(t *testing.T) {
 	_, err = blfNoInstance.GetInstance(context.Background(), reqNoInstance)
 	assert.Assert(t, err != nil, "Expected error for no instances, got nil")
 	assert.Assert(t, err.Error() == "instance not found", "Unexpected error message for no instances")
+
+	// Test case for invalid instance
+	invalidInstanceResolver := &discovery.SynthesizedResolver{
+		TargetFunc: func(ctx context.Context, target *discovery.TargetInfo) string {
+			return target.Host
+		},
+		ResolveFunc: func(ctx context.Context, key string) (discovery.Result, error) {
+			return discovery.Result{CacheKey: "invalid-instance", Instances: []discovery.Instance{nil}}, nil
+		},
+		NameFunc: func() string { return "InvalidInstanceResolver" },
+	}
+
+	blfInvalidInstance := NewBalancerFactory(Config{
+		Balancer: NewWeightedBalancer(),
+		LbOpts:   DefaultLbOpts,
+		Resolver: invalidInstanceResolver,
+	})
+
+	reqInvalidInstance := &protocol.Request{}
+	reqInvalidInstance.SetHost("invalid-instance-service")
+
+	_, err = blfInvalidInstance.GetInstance(context.Background(), reqInvalidInstance)
+	assert.Assert(t, err != nil, "Expected error for invalid instance, got nil")
+	assert.Assert(t, err.Error() == "invalid instance", "Unexpected error message for invalid instance")
 }
 
 type mockLoadbalancer struct {
