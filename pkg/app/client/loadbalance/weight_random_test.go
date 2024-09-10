@@ -109,3 +109,32 @@ func TestWeightedBalancer(t *testing.T) {
 		assert.DeepEqual(t, 10, ins.Weight())
 	}
 }
+
+func TestWeightedBalancerDeleteAndName(t *testing.T) {
+	balancer := NewWeightedBalancer()
+
+	// Test Name method
+	assert.DeepEqual(t, "weight_random", balancer.Name())
+
+	// Test Delete method
+	insList := []discovery.Instance{
+		discovery.NewInstance("tcp", "127.0.0.1:8881", 10, nil),
+	}
+	e := discovery.Result{
+		Instances: insList,
+		CacheKey:  "test_delete",
+	}
+	balancer.Rebalance(e)
+
+	// Verify instance is picked before deletion
+	ins := balancer.Pick(e)
+	assert.NotNil(t, ins)
+	assert.DeepEqual(t, "127.0.0.1:8881", ins.Address().String())
+
+	// Delete the cache entry
+	balancer.Delete("test_delete")
+
+	// Verify no instance is picked after deletion
+	ins = balancer.Pick(e)
+	assert.Nil(t, ins)
+}

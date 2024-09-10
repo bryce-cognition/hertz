@@ -72,14 +72,12 @@ func (wb *weightedBalancer) calcWeightInfo(e discovery.Result) *weightInfo {
 func (wb *weightedBalancer) Pick(e discovery.Result) discovery.Instance {
 	wi, ok := wb.cachedWeightInfo.Load(e.CacheKey)
 	if !ok {
-		wi, _, _ = wb.sfg.Do(e.CacheKey, func() (interface{}, error) {
-			return wb.calcWeightInfo(e), nil
-		})
-		wb.cachedWeightInfo.Store(e.CacheKey, wi)
+		// If the cache entry is not found, return nil instead of recalculating
+		return nil
 	}
 
-	w := wi.(*weightInfo)
-	if w.weightSum <= 0 {
+	w, ok := wi.(*weightInfo)
+	if !ok || w == nil || w.weightSum <= 0 {
 		return nil
 	}
 
