@@ -249,3 +249,4 @@ func TestRenderIndentedJSON(t *testing.T) {
 		assert.NotNil(t, err)
 	})
 }
+

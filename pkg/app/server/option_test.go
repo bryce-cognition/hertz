@@ -160,3 +160,25 @@ func (m *mockTransporter) Close() error {
 func (m *mockTransporter) Shutdown(ctx context.Context) error {
 	panic("implement me")
 }
+
+func TestBasePathCoverage(t *testing.T) {
+	testCases := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"Empty input", "", "/"},
+		{"No slashes", "api", "/api/"},
+		{"Leading slash only", "/api", "/api/"},
+		{"Trailing slash only", "api/", "/api/"},
+		{"Both slashes", "/api/", "/api/"},
+		{"Multiple segments", "/api/v1", "/api/v1/"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			opt := config.NewOptions([]config.Option{WithBasePath(tc.input)})
+			assert.DeepEqual(t, opt.BasePath, tc.expected)
+		})
+	}
+}

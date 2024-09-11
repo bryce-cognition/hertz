@@ -26,6 +26,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/common/test/assert"
 	"github.com/cloudwego/hertz/pkg/common/utils"
 	"github.com/cloudwego/hertz/pkg/protocol"
+	"github.com/fsnotify/fsnotify"
 )
 
 func TestHTMLDebug_StartChecker_timer(t *testing.T) {
@@ -126,4 +127,75 @@ func TestRenderHTML(t *testing.T) {
 	assert.Nil(t, err)
 	assert.DeepEqual(t, []byte("text/html; charset=utf-8"), respDebug.Header.Peek("Content-Type"))
 	assert.DeepEqual(t, []byte("<html><h1>Main website</h1></html>"), respDebug.Body())
+}
+
+func TestHTMLProduction_Instance(t *testing.T) {
+	tmpl := template.Must(template.New("").Parse("<h1>{{.Title}}</h1>"))
+	r := &HTMLProduction{Template: tmpl}
+
+	html := r.Instance("test", map[string]interface{}{"Title": "Test Title"})
+
+	assert.NotNil(t, html)
+	assert.DeepEqual(t, tmpl, html.(HTML).Template)
+	assert.DeepEqual(t, "test", html.(HTML).Name)
+	assert.DeepEqual(t, map[string]interface{}{"Title": "Test Title"}, html.(HTML).Data)
+}
+
+func TestHTMLDebug_Instance(t *testing.T) {
+	tmpl := template.Must(template.New("").Parse("<h1>{{.Title}}</h1>"))
+	r := &HTMLDebug{
+		Template: tmpl,
+		Files:    []string{"test.tmpl"},
+	}
+
+	html := r.Instance("test", map[string]interface{}{"Title": "Test Title"})
+
+	assert.NotNil(t, html)
+	assert.DeepEqual(t, tmpl, html.(HTML).Template)
+	assert.DeepEqual(t, "test", html.(HTML).Name)
+	assert.DeepEqual(t, map[string]interface{}{"Title": "Test Title"}, html.(HTML).Data)
+}
+
+func TestHTMLDebug_Close(t *testing.T) {
+	r := &HTMLDebug{}
+	err := r.Close()
+	assert.Nil(t, err)
+
+	watcher, _ := fsnotify.NewWatcher()
+	r.watcher = watcher
+	err = r.Close()
+	assert.Nil(t, err)
+}
+
+func TestHTMLDebug_reload(t *testing.T) {
+	tmpl := template.Must(template.New("").Parse("<h1>{{.Title}}</h1>"))
+	r := &HTMLDebug{
+		Template: tmpl,
+		Files:    []string{"test.tmpl"},
+		Delims:   Delims{Left: "{{", Right: "}}"},
+		FuncMap:  template.FuncMap{},
+	}
+
+	r.reload()
+
+	assert.NotNil(t, r.Template)
+	assert.NotEqual(t, tmpl, r.Template)
+}
+
+func TestHTMLDebug_startChecker(t *testing.T) {
+	r := &HTMLDebug{
+		RefreshInterval: 100 * time.Millisecond,
+		Files:           []string{"test.tmpl"},
+	}
+
+	r.startChecker()
+
+	assert.NotNil(t, r.reloadCh)
+
+	select {
+	case <-r.reloadCh:
+		// Reload triggered
+	case <-time.After(150 * time.Millisecond):
+		t.Fatal("Reload not triggered within expected time")
+	}
 }
