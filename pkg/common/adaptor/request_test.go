@@ -17,7 +17,9 @@
 package adaptor
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -174,4 +176,324 @@ func TestCopyToHertzRequest(t *testing.T) {
 	assert.DeepEqual(t, req.Header.Values("key2"), valueSlice)
 
 	assert.DeepEqual(t, 3, hertzReq.Header.Len())
+}
+
+func TestGetCompatRequestErrorHandling(t *testing.T) {
+	// Test with invalid method
+	invalidReq := &protocol.Request{}
+	invalidReq.SetMethod("INVALID_METHOD")
+	httpReq, err := GetCompatRequest(invalidReq)
+	assert.Nil(t, err)
+	assert.NotNil(t, httpReq)
+	assert.DeepEqual(t, "INVALID_METHOD", httpReq.Method)
+
+	// Test with empty method
+	emptyMethodReq := &protocol.Request{}
+	httpReq, err = GetCompatRequest(emptyMethodReq)
+	assert.Nil(t, err)
+	assert.NotNil(t, httpReq)
+	assert.DeepEqual(t, "GET", httpReq.Method) // Default method when method is empty
+
+	// Test with nil request
+	httpReq, err = GetCompatRequest(nil)
+	assert.NotNil(t, err)
+	assert.Nil(t, httpReq)
+	assert.DeepEqual(t, "nil request", err.Error())
+}
+
+func TestCopyToHertzRequestEdgeCases(t *testing.T) {
+	t.Run("Nil body", func(t *testing.T) {
+		httpReq, _ := http.NewRequest("GET", "http://example.com", nil)
+		hertzReq := &protocol.Request{}
+		err := CopyToHertzRequest(httpReq, hertzReq)
+		assert.Nil(t, err)
+		assert.DeepEqual(t, int64(0), hertzReq.Header.ContentLength())
+		assert.Nil(t, hertzReq.Body())
+		assert.DeepEqual(t, 0, len(hertzReq.Body()))
+		assert.DeepEqual(t, "GET", string(hertzReq.Method()))
+		assert.DeepEqual(t, "http://example.com", string(hertzReq.URI().FullURI()))
+		assert.DeepEqual(t, 2, hertzReq.Header.Len()) // Host and User-Agent headers are added
+	})
+
+	t.Run("Empty headers", func(t *testing.T) {
+		httpReq, _ := http.NewRequest("GET", "http://example.com", nil)
+		httpReq.Header = make(http.Header)
+		hertzReq := &protocol.Request{}
+		err := CopyToHertzRequest(httpReq, hertzReq)
+		assert.Nil(t, err)
+		assert.DeepEqual(t, 2, hertzReq.Header.Len()) // Host and RequestURI headers are added
+		assert.DeepEqual(t, "GET", string(hertzReq.Method()))
+		assert.DeepEqual(t, "http://example.com", string(hertzReq.URI().FullURI()))
+	})
+
+	t.Run("Multiple header values", func(t *testing.T) {
+		httpReq, _ := http.NewRequest("GET", "http://example.com", nil)
+		httpReq.Header.Add("Multi-Value", "value1")
+		httpReq.Header.Add("Multi-Value", "value2")
+		hertzReq := &protocol.Request{}
+		err := CopyToHertzRequest(httpReq, hertzReq)
+		assert.Nil(t, err)
+		assert.DeepEqual(t, []string{"value1", "value2"}, hertzReq.Header.GetAll("Multi-Value"))
+		assert.DeepEqual(t, 2, hertzReq.Header.Len()) // Multi-Value and Host headers
+	})
+
+	t.Run("Non-nil body", func(t *testing.T) {
+		body := bytes.NewBufferString("test body")
+		httpReq, _ := http.NewRequest("POST", "http://example.com", body)
+		httpReq.Header.Set("Content-Length", "9")
+		httpReq.Header.Set("Content-Type", "text/plain")
+		hertzReq := &protocol.Request{}
+		err := CopyToHertzRequest(httpReq, hertzReq)
+		assert.Nil(t, err)
+		assert.DeepEqual(t, int64(9), hertzReq.Header.ContentLength())
+		assert.DeepEqual(t, []byte("test body"), hertzReq.Body())
+		assert.DeepEqual(t, "POST", string(hertzReq.Method()))
+		assert.DeepEqual(t, "text/plain", string(hertzReq.Header.ContentType())) // Content-Type is copied
+		assert.DeepEqual(t, "http://example.com", string(hertzReq.URI().FullURI()))
+		assert.DeepEqual(t, 3, hertzReq.Header.Len()) // Content-Length, Content-Type, and Host
+	})
+
+	t.Run("Content-Length header set to 0", func(t *testing.T) {
+		httpReq, _ := http.NewRequest("POST", "http://example.com", nil)
+		httpReq.Header.Set("Content-Length", "0")
+		hertzReq := &protocol.Request{}
+		err := CopyToHertzRequest(httpReq, hertzReq)
+		assert.Nil(t, err)
+		assert.DeepEqual(t, int64(0), hertzReq.Header.ContentLength())
+		assert.Nil(t, hertzReq.Body())
+		assert.DeepEqual(t, 2, hertzReq.Header.Len()) // Content-Length and Host
+	})
+
+	t.Run("Invalid Content-Length header", func(t *testing.T) {
+		body := bytes.NewBufferString("test body")
+		httpReq, _ := http.NewRequest("POST", "http://example.com", body)
+		httpReq.Header.Set("Content-Length", "invalid")
+		hertzReq := &protocol.Request{}
+		err := CopyToHertzRequest(httpReq, hertzReq)
+		assert.Nil(t, err)
+		assert.DeepEqual(t, int64(0), hertzReq.Header.ContentLength()) // 0 indicates unknown length
+		assert.DeepEqual(t, []byte("test body"), hertzReq.Body())
+		assert.DeepEqual(t, 2, hertzReq.Header.Len()) // Content-Length and Host
+	})
+
+	t.Run("Empty body with non-zero Content-Length", func(t *testing.T) {
+		httpReq, _ := http.NewRequest("POST", "http://example.com", nil)
+		httpReq.Header.Set("Content-Length", "10")
+		hertzReq := &protocol.Request{}
+		err := CopyToHertzRequest(httpReq, hertzReq)
+		assert.Nil(t, err)
+		assert.DeepEqual(t, int64(10), hertzReq.Header.ContentLength())
+		assert.Nil(t, hertzReq.Body())
+		assert.DeepEqual(t, 2, hertzReq.Header.Len()) // Content-Length and Host
+	})
+
+	t.Run("Custom HTTP method", func(t *testing.T) {
+		httpReq, _ := http.NewRequest("CUSTOM", "http://example.com", nil)
+		hertzReq := &protocol.Request{}
+		err := CopyToHertzRequest(httpReq, hertzReq)
+		assert.Nil(t, err)
+		assert.DeepEqual(t, "CUSTOM", string(hertzReq.Method()))
+	})
+
+	t.Run("URL with query parameters", func(t *testing.T) {
+		httpReq, _ := http.NewRequest("GET", "http://example.com/path?param1=value1&param2=value2", nil)
+		hertzReq := &protocol.Request{}
+		err := CopyToHertzRequest(httpReq, hertzReq)
+		assert.Nil(t, err)
+		assert.DeepEqual(t, "http://example.com/path?param1=value1&param2=value2", string(hertzReq.URI().FullURI()))
+		assert.DeepEqual(t, "value1", string(hertzReq.URI().QueryArgs().Peek("param1")))
+		assert.DeepEqual(t, "value2", string(hertzReq.URI().QueryArgs().Peek("param2")))
+		assert.DeepEqual(t, 1, hertzReq.Header.Len()) // Host header
+	})
+
+	t.Run("Large body", func(t *testing.T) {
+		largeBody := bytes.Repeat([]byte("a"), 1024*1024) // 1MB body
+		httpReq, _ := http.NewRequest("POST", "http://example.com", bytes.NewReader(largeBody))
+		httpReq.Header.Set("Content-Length", fmt.Sprintf("%d", len(largeBody)))
+		hertzReq := &protocol.Request{}
+		err := CopyToHertzRequest(httpReq, hertzReq)
+		assert.Nil(t, err)
+		assert.DeepEqual(t, int64(len(largeBody)), hertzReq.Header.ContentLength())
+		assert.DeepEqual(t, largeBody, hertzReq.Body())
+		assert.DeepEqual(t, 2, hertzReq.Header.Len()) // Content-Length and Host
+	})
+
+	t.Run("Transfer-Encoding header", func(t *testing.T) {
+		httpReq, _ := http.NewRequest("POST", "http://example.com", strings.NewReader("chunked body"))
+		httpReq.Header.Set("Transfer-Encoding", "chunked")
+		hertzReq := &protocol.Request{}
+		err := CopyToHertzRequest(httpReq, hertzReq)
+		assert.Nil(t, err)
+		assert.DeepEqual(t, "chunked", string(hertzReq.Header.Peek("Transfer-Encoding")))
+		assert.DeepEqual(t, []byte("chunked body"), hertzReq.Body())
+		assert.DeepEqual(t, 1, hertzReq.Header.Len()) // Only Host header is added
+		assert.DeepEqual(t, "http://example.com", string(hertzReq.URI().FullURI()))
+	})
+
+	t.Run("Non-standard port in URL", func(t *testing.T) {
+		httpReq, _ := http.NewRequest("GET", "http://example.com:8080/path", nil)
+		hertzReq := &protocol.Request{}
+		err := CopyToHertzRequest(httpReq, hertzReq)
+		assert.Nil(t, err)
+		assert.DeepEqual(t, "/path", string(hertzReq.URI().Path()))
+		assert.DeepEqual(t, "example.com:8080", string(hertzReq.URI().Host()))
+		assert.DeepEqual(t, "http", string(hertzReq.URI().Scheme()))
+		assert.DeepEqual(t, 1, hertzReq.Header.Len()) // Only Host header
+	})
+
+	t.Run("Relative URL", func(t *testing.T) {
+		httpReq, _ := http.NewRequest("GET", "/relative/path", nil)
+		httpReq.Host = "example.com"
+		hertzReq := &protocol.Request{}
+		err := CopyToHertzRequest(httpReq, hertzReq)
+		assert.Nil(t, err)
+		assert.DeepEqual(t, "/relative/path", string(hertzReq.URI().Path()))
+		assert.DeepEqual(t, "example.com", string(hertzReq.URI().Host()))
+		assert.DeepEqual(t, "/relative/path", string(hertzReq.URI().FullURI()))
+	})
+
+	t.Run("Empty URL", func(t *testing.T) {
+		httpReq, _ := http.NewRequest("GET", "", nil)
+		httpReq.Host = "example.com"
+		hertzReq := &protocol.Request{}
+		err := CopyToHertzRequest(httpReq, hertzReq)
+		assert.Nil(t, err)
+		assert.DeepEqual(t, "", string(hertzReq.URI().Path()))
+		assert.DeepEqual(t, "example.com", string(hertzReq.URI().Host()))
+		assert.DeepEqual(t, "", string(hertzReq.URI().FullURI()))
+		assert.DeepEqual(t, 1, hertzReq.Header.Len()) // Only Host header
+	})
+
+	t.Run("Custom header", func(t *testing.T) {
+		httpReq, _ := http.NewRequest("GET", "http://example.com", nil)
+		httpReq.Header.Set("X-Custom-Header", "custom-value")
+		hertzReq := &protocol.Request{}
+		err := CopyToHertzRequest(httpReq, hertzReq)
+		assert.Nil(t, err)
+		assert.DeepEqual(t, "custom-value", string(hertzReq.Header.Peek("X-Custom-Header")))
+		assert.DeepEqual(t, 2, hertzReq.Header.Len()) // X-Custom-Header and Host
+	})
+
+	t.Run("URL with special characters", func(t *testing.T) {
+		httpReq, _ := http.NewRequest("GET", "http://example.com/path%20with%20spaces?q=hello%20world", nil)
+		hertzReq := &protocol.Request{}
+		err := CopyToHertzRequest(httpReq, hertzReq)
+		assert.Nil(t, err)
+		assert.DeepEqual(t, "http://example.com/path%20with%20spaces?q=hello%20world", string(hertzReq.URI().FullURI()))
+		assert.DeepEqual(t, "/path%20with%20spaces", string(hertzReq.URI().Path()))
+		assert.DeepEqual(t, "hello world", string(hertzReq.URI().QueryArgs().Peek("q")))
+	})
+
+	t.Run("Body without Content-Length header", func(t *testing.T) {
+		body := bytes.NewBufferString("test body")
+		httpReq, _ := http.NewRequest("POST", "http://example.com", body)
+		hertzReq := &protocol.Request{}
+		err := CopyToHertzRequest(httpReq, hertzReq)
+		assert.Nil(t, err)
+		assert.DeepEqual(t, int64(0), hertzReq.Header.ContentLength()) // 0 indicates unknown length
+		assert.DeepEqual(t, []byte("test body"), hertzReq.Body())
+		assert.DeepEqual(t, 1, hertzReq.Header.Len()) // Only Host header
+	})
+
+	t.Run("HTTPS URL", func(t *testing.T) {
+		httpReq, _ := http.NewRequest("GET", "https://example.com/secure", nil)
+		hertzReq := &protocol.Request{}
+		err := CopyToHertzRequest(httpReq, hertzReq)
+		assert.Nil(t, err)
+		assert.DeepEqual(t, "https://example.com/secure", string(hertzReq.URI().FullURI()))
+		assert.DeepEqual(t, "https", string(hertzReq.URI().Scheme()))
+	})
+
+	t.Run("URL with fragment", func(t *testing.T) {
+		httpReq, _ := http.NewRequest("GET", "http://example.com/page#section1", nil)
+		hertzReq := &protocol.Request{}
+		err := CopyToHertzRequest(httpReq, hertzReq)
+		assert.Nil(t, err)
+		assert.DeepEqual(t, "http://example.com/page#section1", string(hertzReq.URI().FullURI()))
+		assert.DeepEqual(t, "section1", string(hertzReq.URI().Hash()))
+	})
+
+	t.Run("URL with userinfo", func(t *testing.T) {
+		httpReq, _ := http.NewRequest("GET", "http://user:pass@example.com/", nil)
+		hertzReq := &protocol.Request{}
+		err := CopyToHertzRequest(httpReq, hertzReq)
+		assert.Nil(t, err)
+		assert.DeepEqual(t, "http://user:pass@example.com/", string(hertzReq.URI().FullURI()))
+		assert.True(t, strings.Contains(string(hertzReq.URI().FullURI()), "user:pass@"))
+	})
+
+	t.Run("Request with nil URL", func(t *testing.T) {
+		httpReq := &http.Request{Method: "GET", URL: nil}
+		hertzReq := &protocol.Request{}
+		err := CopyToHertzRequest(httpReq, hertzReq)
+		assert.Nil(t, err)
+		assert.DeepEqual(t, "", string(hertzReq.URI().FullURI()))
+	})
+
+	t.Run("Request with nil Header", func(t *testing.T) {
+		httpReq, _ := http.NewRequest("GET", "http://example.com", nil)
+		httpReq.Header = nil
+		hertzReq := &protocol.Request{}
+		err := CopyToHertzRequest(httpReq, hertzReq)
+
+		assert.Nil(t, err)
+		assert.DeepEqual(t, 1, hertzReq.Header.Len()) // Host header is still added
+	})
+
+	t.Run("Request with non-nil Body but zero Content-Length", func(t *testing.T) {
+		httpReq, _ := http.NewRequest("POST", "http://example.com", strings.NewReader(""))
+		httpReq.ContentLength = 0
+		hertzReq := &protocol.Request{}
+		err := CopyToHertzRequest(httpReq, hertzReq)
+		assert.Nil(t, err)
+		assert.DeepEqual(t, int64(0), hertzReq.Header.ContentLength())
+		assert.NotNil(t, hertzReq.Body())
+		assert.DeepEqual(t, 0, len(hertzReq.Body()))
+	})
+
+	t.Run("Request with custom protocol version", func(t *testing.T) {
+		httpReq, _ := http.NewRequest("GET", "http://example.com", nil)
+		httpReq.Proto = "HTTP/2.0"
+		hertzReq := &protocol.Request{}
+		err := CopyToHertzRequest(httpReq, hertzReq)
+		assert.Nil(t, err)
+		assert.DeepEqual(t, "HTTP/2.0", string(hertzReq.Header.GetProtocol()))
+	})
+
+	t.Run("Request with nil URL and non-nil Header", func(t *testing.T) {
+		httpReq := &http.Request{Method: "GET", URL: nil, Header: make(http.Header)}
+		httpReq.Header.Set("X-Custom-Header", "custom-value")
+		hertzReq := &protocol.Request{}
+		err := CopyToHertzRequest(httpReq, hertzReq)
+		assert.Nil(t, err)
+		assert.DeepEqual(t, "", string(hertzReq.URI().FullURI()))
+		assert.DeepEqual(t, "custom-value", string(hertzReq.Header.Peek("X-Custom-Header")))
+		assert.DeepEqual(t, 1, hertzReq.Header.Len()) // Only X-Custom-Header
+	})
+
+	t.Run("Request with both Transfer-Encoding and Content-Length headers", func(t *testing.T) {
+		body := bytes.NewBufferString("test body")
+		httpReq, _ := http.NewRequest("POST", "http://example.com", body)
+		httpReq.Header.Set("Transfer-Encoding", "chunked")
+		httpReq.Header.Set("Content-Length", "9")
+		hertzReq := &protocol.Request{}
+		err := CopyToHertzRequest(httpReq, hertzReq)
+		assert.Nil(t, err)
+		assert.DeepEqual(t, "chunked", string(hertzReq.Header.Peek("Transfer-Encoding")))
+		assert.DeepEqual(t, int64(9), hertzReq.Header.ContentLength())
+		assert.DeepEqual(t, []byte("test body"), hertzReq.Body())
+		assert.DeepEqual(t, 3, hertzReq.Header.Len()) // Transfer-Encoding, Content-Length, and Host
+	})
+
+	t.Run("Request with body but zero Content-Length", func(t *testing.T) {
+		body := bytes.NewBufferString("test body")
+		httpReq, _ := http.NewRequest("POST", "http://example.com", body)
+		httpReq.ContentLength = 0
+		hertzReq := &protocol.Request{}
+		err := CopyToHertzRequest(httpReq, hertzReq)
+		assert.Nil(t, err)
+		assert.DeepEqual(t, int64(0), hertzReq.Header.ContentLength())
+		assert.DeepEqual(t, []byte("test body"), hertzReq.Body())
+		assert.DeepEqual(t, 1, hertzReq.Header.Len()) // Only Host header
+	})
 }
