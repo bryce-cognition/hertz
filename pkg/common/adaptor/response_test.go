@@ -80,13 +80,19 @@ func TestCompatResponse_WriteHeaderAndStatusCode(t *testing.T) {
 	// Test that setting headers after WriteHeader doesn't affect the response
 	cr.Header().Set("X-Late-Header", "late-value")
 	assert.DeepEqual(t, "", string(resp.Header.Peek("X-Late-Header")))
+
+	// Test that the first call to WriteHeader sets the status code
+	newResp := &protocol.Response{}
+	newCr := &CompatResponse{h: newResp}
+	newCr.WriteHeader(consts.StatusOK)
+	assert.DeepEqual(t, consts.StatusOK, newResp.Header.StatusCode())
 }
 
 func TestCompatResponse_SetCookie(t *testing.T) {
 	resp := &protocol.Response{}
 	cr := &CompatResponse{h: resp}
 
-	cookieStr := "session=123; Path=/; HttpOnly"
+	cookieStr := "session=123; path=/; HttpOnly"
 	cr.Header().Set("Set-Cookie", cookieStr)
 	cr.WriteHeader(consts.StatusOK)
 
@@ -141,11 +147,11 @@ func TestGetCompatResponseWriter(t *testing.T) {
 	writer.WriteHeader(consts.StatusOK)
 
 	// Verify that the new header is set in the underlying response
-	assert.DeepEqual(t, "new value", resp.Header.Get("X-New-Header"))
+	assert.DeepEqual(t, "new value", string(resp.Header.Peek("X-New-Header")))
 
 	// Test setting a header after WriteHeader (should not be reflected)
 	writer.Header().Set("X-Late-Header", "late value")
-	assert.DeepEqual(t, "", resp.Header.Get("X-Late-Header"))
+	assert.DeepEqual(t, "", string(resp.Header.Peek("X-Late-Header")))
 }
 
 func TestCompatResponse_MultipleWriteHeader(t *testing.T) {
@@ -171,6 +177,9 @@ func TestCompatResponse_MultipleWriteHeader(t *testing.T) {
 	// Test that even after writing, additional WriteHeader calls don't change the status
 	cr.WriteHeader(consts.StatusInternalServerError)
 	assert.DeepEqual(t, consts.StatusOK, resp.Header.StatusCode())
+
+	// Test that the writeHeader flag is set after the first WriteHeader call
+	assert.True(t, cr.writeHeader)
 }
 
 func TestCompatResponse_HeaderManipulation(t *testing.T) {
@@ -221,7 +230,6 @@ func TestGetCompatResponseWriter_EdgeCases(t *testing.T) {
 	resp.Header.SetContentLength(100)
 	writer = GetCompatResponseWriter(resp)
 	compatResp, _ = writer.(*CompatResponse)
-	assert.DeepEqual(t, "", compatResp.Header().Get("Content-Length"))
 
 	// Verify Content-Length is not transferred to CompatResponse
 	assert.DeepEqual(t, 0, len(compatResp.Header()["Content-Length"]))
