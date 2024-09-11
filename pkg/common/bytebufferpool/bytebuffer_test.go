@@ -47,6 +47,8 @@ import (
 	"io"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestByteBufferReadFrom(t *testing.T) {
@@ -176,4 +178,61 @@ func TestByteBufferGetStringConcurrent(t *testing.T) {
 			t.Fatalf("timeout!")
 		}
 	}
+}
+
+func TestByteBufferLen(t *testing.T) {
+	b := &ByteBuffer{}
+	assert.Equal(t, 0, b.Len(), "Empty buffer should have length 0")
+
+	b.WriteString("Hello")
+	assert.Equal(t, 5, b.Len(), "Buffer length should be 5 after writing 'Hello'")
+
+	b.Reset()
+	assert.Equal(t, 0, b.Len(), "Buffer length should be 0 after Reset")
+}
+
+func TestByteBufferBytes(t *testing.T) {
+	b := &ByteBuffer{}
+	b.WriteString("Test")
+	assert.Equal(t, []byte("Test"), b.Bytes(), "Bytes() should return the correct byte slice")
+}
+
+func TestByteBufferWrite(t *testing.T) {
+	b := &ByteBuffer{}
+	n, err := b.Write([]byte("Hello"))
+	assert.NoError(t, err, "Write should not return an error")
+	assert.Equal(t, 5, n, "Write should return the correct number of bytes written")
+	assert.Equal(t, "Hello", string(b.B), "Buffer should contain the written data")
+}
+
+func TestByteBufferWriteByte(t *testing.T) {
+	b := &ByteBuffer{}
+	err := b.WriteByte('A')
+	assert.NoError(t, err, "WriteByte should not return an error")
+	assert.Equal(t, "A", string(b.B), "Buffer should contain the written byte")
+}
+
+func TestByteBufferWriteString(t *testing.T) {
+	b := &ByteBuffer{}
+	n, err := b.WriteString("Test")
+	assert.NoError(t, err, "WriteString should not return an error")
+	assert.Equal(t, 4, n, "WriteString should return the correct number of bytes written")
+	assert.Equal(t, "Test", string(b.B), "Buffer should contain the written string")
+}
+
+func TestByteBufferSet(t *testing.T) {
+	b := &ByteBuffer{}
+	b.Set([]byte("Hello"))
+	assert.Equal(t, "Hello", string(b.B), "Set should set the buffer to the given byte slice")
+
+	b.Set([]byte("World"))
+	assert.Equal(t, "World", string(b.B), "Set should replace the buffer content")
+}
+
+func TestByteBufferReset(t *testing.T) {
+	b := &ByteBuffer{}
+	b.WriteString("Test")
+	b.Reset()
+	assert.Equal(t, 0, b.Len(), "Reset should clear the buffer")
+	assert.Equal(t, "", string(b.B), "Reset should result in an empty buffer")
 }
