@@ -1706,3 +1706,4 @@ func Benchmark_Binding(b *testing.B) {
 		}
 	}
 }
+
