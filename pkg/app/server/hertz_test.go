@@ -1168,3 +1168,56 @@ func TestWithDisableDefaultContentType(t *testing.T) {
 	r, _ := hc.Get("http://127.0.0.1:8324") //nolint:errcheck
 	assert.DeepEqual(t, "", r.Header.Get("Content-Type"))
 }
+
+func TestHertzSpinWithCustomSignalWaiter(t *testing.T) {
+	h := New(WithHostPorts("localhost:8325"))
+	customWaiterCalled := false
+	h.SetCustomSignalWaiter(func(err chan error) error {
+		customWaiterCalled = true
+		return nil
+	})
+
+	go h.Spin()
+	time.Sleep(100 * time.Millisecond)
+
+	// Simulate shutdown
+	h.Close()
+
+	assert.True(t, customWaiterCalled, "Custom signal waiter should have been called")
+}
+
+func TestWaitSignalWithTermSignal(t *testing.T) {
+	errCh := make(chan error)
+	signalCh := make(chan os.Signal, 1)
+
+	go func() {
+		signalCh <- syscall.SIGTERM
+	}()
+
+	oldSignalNotify := signal.Notify
+	defer func() { signal.Notify = oldSignalNotify }()
+
+	signal.Notify = func(c chan<- os.Signal, sig ...os.Signal) {
+		go func() {
+			for s := range signalCh {
+				c <- s
+			}
+		}()
+	}
+
+	err := waitSignal(errCh)
+	assert.NotNil(t, err, "SIGTERM should trigger an immediate close")
+	assert.Contains(t, err.Error(), "SIGTERM", "Error should contain SIGTERM")
+}
+
+func TestWaitSignalWithErrorChannel(t *testing.T) {
+	errCh := make(chan error, 1)
+	expectedErr := errors.New("test error")
+
+	go func() {
+		errCh <- expectedErr
+	}()
+
+	err := waitSignal(errCh)
+	assert.Equal(t, expectedErr, err, "Should return the error from errCh")
+}
