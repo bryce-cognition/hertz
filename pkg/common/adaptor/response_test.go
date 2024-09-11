@@ -92,16 +92,16 @@ func TestCompatResponse_SetCookie(t *testing.T) {
 
 	setCookie := resp.Header.Peek("Set-Cookie")
 	assert.NotNil(t, setCookie)
-	assert.Equal(t, cookieStr, string(setCookie))
+	assert.DeepEqual(t, cookieStr, string(setCookie))
 
 	// Verify that multiple cookies are handled correctly
 	cr.Header().Add("Set-Cookie", "user=john; Secure")
 	cr.WriteHeader(consts.StatusOK) // This should not affect the already set cookies
 
 	setCookies := resp.Header.PeekAll("Set-Cookie")
-	assert.Equal(t, 2, len(setCookies))
-	assert.Equal(t, cookieStr, string(setCookies[0]))
-	assert.Equal(t, "user=john; Secure", string(setCookies[1]))
+	assert.DeepEqual(t, 2, len(setCookies))
+	assert.DeepEqual(t, cookieStr, string(setCookies[0]))
+	assert.DeepEqual(t, "user=john; Secure", string(setCookies[1]))
 }
 
 func TestGetCompatResponseWriter(t *testing.T) {
