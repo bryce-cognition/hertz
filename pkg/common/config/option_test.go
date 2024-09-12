@@ -71,3 +71,60 @@ func TestApplyCustomOptions(t *testing.T) {
 	})
 	assert.DeepEqual(t, "unix", options.Network)
 }
+
+// TestApplyMultipleOptions tests applying multiple options and verifies various fields
+func TestApplyMultipleOptions(t *testing.T) {
+	options := NewOptions([]Option{})
+	options.Apply([]Option{
+		{F: func(o *Options) {
+			o.MaxKeepBodySize = 1024 * 1024
+		}},
+		{F: func(o *Options) {
+			o.StreamRequestBody = true
+		}},
+		{F: func(o *Options) {
+			o.DisablePrintRoute = true
+		}},
+		{F: func(o *Options) {
+			o.AutoReloadRender = true
+		}},
+		{F: func(o *Options) {
+			o.AutoReloadInterval = 5 * time.Second
+		}},
+		{F: func(o *Options) {
+			o.DisableHeaderNamesNormalizing = true
+		}},
+	})
+
+	assert.DeepEqual(t, 1024*1024, options.MaxKeepBodySize)
+	assert.True(t, options.StreamRequestBody)
+	assert.True(t, options.DisablePrintRoute)
+	assert.True(t, options.AutoReloadRender)
+	assert.DeepEqual(t, 5*time.Second, options.AutoReloadInterval)
+	assert.True(t, options.DisableHeaderNamesNormalizing)
+}
+
+// TestApplyCustomOptionsWithDefaults tests applying custom options while preserving default values
+func TestApplyCustomOptionsWithDefaults(t *testing.T) {
+	options := NewOptions([]Option{})
+	options.Apply([]Option{
+		{F: func(o *Options) {
+			o.MaxRequestBodySize = 2 * 1024 * 1024
+		}},
+		{F: func(o *Options) {
+			o.WriteTimeout = 30 * time.Second
+		}},
+	})
+
+	// Check custom values
+	assert.DeepEqual(t, 2*1024*1024, options.MaxRequestBodySize)
+	assert.DeepEqual(t, 30*time.Second, options.WriteTimeout)
+
+	// Check default values are preserved
+	assert.DeepEqual(t, defaultKeepAliveTimeout, options.KeepAliveTimeout)
+	assert.DeepEqual(t, defaultReadTimeout, options.ReadTimeout)
+	assert.DeepEqual(t, defaultReadTimeout, options.IdleTimeout)
+	assert.True(t, options.RedirectTrailingSlash)
+	assert.DeepEqual(t, defaultNetwork, options.Network)
+	assert.DeepEqual(t, defaultAddr, options.Addr)
+}
