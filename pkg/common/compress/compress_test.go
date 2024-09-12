@@ -42,8 +42,11 @@
 package compress
 
 import (
+	"bytes"
 	"io"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestCompressNewCompressWriterPoolMap(t *testing.T) {
@@ -126,4 +129,75 @@ type defaultByteWriter struct {
 func (w *defaultByteWriter) Write(p []byte) (int, error) {
 	w.b = append(w.b, p...)
 	return len(p), nil
+}
+
+func TestAcquireReleaseGzipReader(t *testing.T) {
+	testData := []byte("Hello, World!")
+	compressedData := AppendGzipBytes(nil, testData)
+
+	reader := bytes.NewReader(compressedData)
+	gzipReader, err := AcquireGzipReader(reader)
+	assert.Nil(t, err)
+	assert.NotNil(t, gzipReader)
+
+	decompressedData, err := io.ReadAll(gzipReader)
+	assert.Nil(t, err)
+	assert.Equal(t, testData, decompressedData)
+
+	ReleaseGzipReader(gzipReader)
+
+	// Test reuse of released reader
+	reader.Reset(compressedData)
+	gzipReader, err = AcquireGzipReader(reader)
+	assert.Nil(t, err)
+	assert.NotNil(t, gzipReader)
+
+	decompressedData, err = io.ReadAll(gzipReader)
+	assert.Nil(t, err)
+	assert.Equal(t, testData, decompressedData)
+
+	ReleaseGzipReader(gzipReader)
+}
+
+func TestAppendGzipBytes(t *testing.T) {
+	testData := []byte("Hello, World!")
+	compressedData := AppendGzipBytes(nil, testData)
+
+	decompressedData, err := AppendGunzipBytes(nil, compressedData)
+	assert.Nil(t, err)
+	assert.Equal(t, testData, decompressedData)
+}
+
+func TestNormalizeCompressLevel(t *testing.T) {
+	testCases := []struct {
+		input    int
+		expected int
+	}{
+		{-3, 8},  // CompressDefaultCompression
+		{-2, 0},  // CompressHuffmanOnly
+		{0, 2},   // CompressNoCompression
+		{5, 7},   // CompressDefaultCompression
+		{9, 11},  // CompressBestCompression
+		{10, 8},  // CompressDefaultCompression
+	}
+
+	for _, tc := range testCases {
+		result := normalizeCompressLevel(tc.input)
+		assert.Equal(t, tc.expected, result)
+	}
+}
+
+func TestAcquireReleaseStacklessGzipWriter(t *testing.T) {
+	testData := []byte("Hello, World!")
+	var buf bytes.Buffer
+
+	writer := AcquireStacklessGzipWriter(&buf, CompressDefaultCompression)
+	_, err := writer.Write(testData)
+	assert.Nil(t, err)
+
+	ReleaseStacklessGzipWriter(writer, CompressDefaultCompression)
+
+	decompressedData, err := AppendGunzipBytes(nil, buf.Bytes())
+	assert.Nil(t, err)
+	assert.Equal(t, testData, decompressedData)
 }
