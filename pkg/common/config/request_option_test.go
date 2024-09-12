@@ -75,3 +75,47 @@ func TestRequestOptions_CopyTo(t *testing.T) {
 	assert.DeepEqual(t, opt.Tags(), copyOpt.Tags())
 	assert.DeepEqual(t, opt.IsSD(), copyOpt.IsSD())
 }
+
+// TestWithRequestTimeout tests the WithRequestTimeout option
+func TestWithRequestTimeout(t *testing.T) {
+	timeout := 5 * time.Second
+	opt := NewRequestOptions([]RequestOption{
+		WithRequestTimeout(timeout),
+	})
+	assert.DeepEqual(t, timeout, opt.RequestTimeout())
+}
+
+// TestStartRequestAndStartTime tests the StartRequest and StartTime methods
+func TestStartRequestAndStartTime(t *testing.T) {
+	opt := NewRequestOptions([]RequestOption{
+		WithRequestTimeout(5 * time.Second),
+	})
+
+	// Test that StartTime is zero before StartRequest is called
+	assert.True(t, opt.StartTime().IsZero())
+
+	opt.StartRequest()
+
+	// Test that StartTime is not zero after StartRequest is called
+	assert.False(t, opt.StartTime().IsZero())
+}
+
+// TestTimeoutGetters tests the individual timeout getter methods
+func TestTimeoutGetters(t *testing.T) {
+	dialTimeout := 2 * time.Second
+	readTimeout := 3 * time.Second
+	writeTimeout := 4 * time.Second
+	requestTimeout := 5 * time.Second
+
+	opt := NewRequestOptions([]RequestOption{
+		WithDialTimeout(dialTimeout),
+		WithReadTimeout(readTimeout),
+		WithWriteTimeout(writeTimeout),
+		WithRequestTimeout(requestTimeout),
+	})
+
+	assert.DeepEqual(t, dialTimeout, opt.DialTimeout())
+	assert.DeepEqual(t, readTimeout, opt.ReadTimeout())
+	assert.DeepEqual(t, writeTimeout, opt.WriteTimeout())
+	assert.DeepEqual(t, requestTimeout, opt.RequestTimeout())
+}
