@@ -48,29 +48,33 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/cloudwego/hertz/pkg/common/test/assert"
 )
 
 func TestIndex(t *testing.T) {
-	testIndex(t, 0, 0)
-	testIndex(t, 1, 0)
+	testCases := []struct {
+		n           int
+		expectedIdx int
+	}{
+		{0, 0},
+		{1, 0},
+		{minSize - 1, 0},
+		{minSize, 0},
+		{minSize + 1, 1},
+		{2*minSize - 1, 1},
+		{2 * minSize, 1},
+		{2*minSize + 1, 2},
+		{maxSize - 1, steps - 1},
+		{maxSize, steps - 1},
+		{maxSize + 1, steps - 1},
+	}
 
-	testIndex(t, minSize-1, 0)
-	testIndex(t, minSize, 0)
-	testIndex(t, minSize+1, 1)
-
-	testIndex(t, 2*minSize-1, 1)
-	testIndex(t, 2*minSize, 1)
-	testIndex(t, 2*minSize+1, 2)
-
-	testIndex(t, maxSize-1, steps-1)
-	testIndex(t, maxSize, steps-1)
-	testIndex(t, maxSize+1, steps-1)
-}
-
-func testIndex(t *testing.T, n, expectedIdx int) {
-	idx := index(n)
-	if idx != expectedIdx {
-		t.Fatalf("unexpected idx for n=%d: %d. Expecting %d", n, idx, expectedIdx)
+	for _, tc := range testCases {
+		t.Run(fmt.Sprintf("n=%d", tc.n), func(t *testing.T) {
+			idx := index(tc.n)
+			assert.DeepEqual(t, tc.expectedIdx, idx)
+		})
 	}
 }
 
