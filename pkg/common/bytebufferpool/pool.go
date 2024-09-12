@@ -91,8 +91,14 @@ func (p *Pool) Get() *ByteBuffer {
 	if v != nil {
 		return v.(*ByteBuffer)
 	}
+	size := atomic.LoadUint64(&p.defaultSize)
+	if size == 0 {
+		size = minSize
+	} else if size > maxSize {
+		size = maxSize
+	}
 	return &ByteBuffer{
-		B: make([]byte, 0, atomic.LoadUint64(&p.defaultSize)),
+		B: make([]byte, 0, size),
 	}
 }
 
